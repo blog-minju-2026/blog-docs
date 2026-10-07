@@ -13,7 +13,7 @@
 
 ## Requirement Completeness
 
-- [ ] [NEEDS CLARIFICATION] 표시가 남아 있지 않다 → 1건 남음 (주제 목록, spec.md 부록 참고). 2026-10-07 clarify에서 나머지 정리
+- [x] [NEEDS CLARIFICATION] 표시가 남아 있지 않다 (2026-10-07 clarify에서 모두 정리)
 - [x] 요구사항은 테스트할 수 있고 모호하지 않다
 - [x] 성공 기준은 측정할 수 있다
 - [x] 성공 기준에 기술 용어가 없다

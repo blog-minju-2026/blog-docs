@@ -22,6 +22,6 @@ blog-docs/
 
 ## 다음 단계
 
-1. `/speckit.clarify`: 정리 완료 (2026-10-07). 주제 목록 1건만 남음
+1. `/speckit.clarify`: 미결정 사항 모두 정리 완료 (2026-10-07)
 2. `/speckit.plan`: 기술 스택, 화면, 데이터 모델(ERD를 `data-model.md`로 정리)
 3. `/speckit.tasks` → `/speckit.implement`
