@@ -13,15 +13,11 @@ blog-docs/
 │       └── checklists/
 │           └── requirements.md      # 명세 품질 체크리스트
 └── docs/                            # 원본 문서 (수정하지 않고 참고용으로 보관)
-    ├── 1팀_블로그_통합_기능명세서.md  # 팀 통합본 v0.2, spec.md의 기준 문서
-    ├── 기능명세서.md                  # 한채 개인 명세 v0.6
-    ├── ERD.md                       # 팀 ERD 기본안
-    ├── ERD_파트2_글분류검색.md        # 글·분류·검색 파트 ERD
-    └── erd_part2.sql                # 파트 2 스키마 초안
+    └── 1팀_블로그_통합_기능명세서.md  # 팀 통합본 v0.2, spec.md의 기준 문서
 ```
 
 ## 다음 단계
 
 1. `/speckit.clarify`: 미결정 사항 모두 정리 완료 (2026-10-07)
-2. `/speckit.plan`: 기술 스택, 화면, 데이터 모델(ERD를 `data-model.md`로 정리)
+2. 기능명세(spec.md) 보강 중. `/speckit.plan`은 그다음 (기술 스택, 화면, 데이터 모델)
 3. `/speckit.tasks` → `/speckit.implement`
