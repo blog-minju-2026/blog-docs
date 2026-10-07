@@ -22,6 +22,6 @@ blog-docs/
 
 ## 다음 단계
 
-1. `/speckit.clarify`: `specs/001-blog/spec.md`의 `[NEEDS CLARIFICATION]` 10건 정리
+1. `/speckit.clarify`: 정리 완료 (2026-10-07). 주제 목록 1건만 남음
 2. `/speckit.plan`: 기술 스택, 화면, 데이터 모델(ERD를 `data-model.md`로 정리)
 3. `/speckit.tasks` → `/speckit.implement`
