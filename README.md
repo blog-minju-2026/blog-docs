@@ -10,6 +10,11 @@ blog-docs/
 ├── specs/
 │   └── 001-blog/
 │       ├── spec.md                  # Spec Kit 기능 명세 (무엇을, 왜)
+│       ├── plan.md                  # 구현 계획: 기술 스택, 구조, 단계 (어떻게)
+│       ├── research.md              # 기술 결정 이유, 자율 값, 주제 목록
+│       ├── data-model.md            # 데이터 모델 (팀 ERD 기반)
+│       ├── contracts/               # 화면 주소(pages.md)와 JSON API(api.md)
+│       ├── quickstart.md            # 로컬 실행과 P1 확인 순서
 │       └── checklists/
 │           └── requirements.md      # 명세 품질 체크리스트
 └── docs/                            # 원본 문서 (수정하지 않고 참고용으로 보관)
@@ -23,5 +28,5 @@ blog-docs/
 ## 다음 단계
 
 1. `/speckit.clarify`: 미결정 사항 모두 정리 완료 (2026-10-07)
-2. `/speckit.plan`: 기술 스택, 화면, 데이터 모델(ERD를 `data-model.md`로 정리)
+2. `/speckit.plan`: 완료 (2026-10-07). Django 5.2 + MySQL 8.4 + django-allauth + Quill 2, 프론트엔드는 순수 HTML·CSS·JS
 3. `/speckit.tasks` → `/speckit.implement`
