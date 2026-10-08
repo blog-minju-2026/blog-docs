@@ -44,7 +44,8 @@ erDiagram
     topics |o--o{ posts : "주제(null = 주제 없음)"
     posts ||--o{ post_tags : "태그 연결"
     tags ||--o{ post_tags : "글 연결"
-    posts |o--o{ images : "본문 이미지"
+    posts ||--o{ post_images : "본문 이미지 연결"
+    images ||--o{ post_images : "쓰인 글"
     posts ||--o{ comments : "댓글"
     posts ||--o{ post_likes : "공감받음"
     posts ||--o{ post_views : "조회 기록"
@@ -57,7 +58,7 @@ erDiagram
         varchar email UK "null. 소셜 가입은 없을 수 있음"
         varchar password "Argon2 해시. 소셜 전용이면 사용 불가 표시"
         varchar nickname UK "null. 2~20자, 탈퇴하면 null"
-        bigint profile_image_id FK "null. 회원 프로필(AUTH-05)"
+        varchar profile_image "null. 회원 프로필 파일 경로(AUTH-05)"
         varchar role "MEMBER | ADMIN"
         datetime terms_agreed_at "이용약관 동의(AUTH-01e)"
         datetime privacy_agreed_at "개인정보 수집·이용 동의"
@@ -94,7 +95,7 @@ erDiagram
         varchar address UK "4~32자, 변경 불가, 영구 예약"
         varchar name "1~40자"
         varchar description "0~200자"
-        bigint profile_image_id FK "null. 블로그 프로필(BLOG-02)"
+        varchar profile_image "null. 블로그 프로필 파일 경로(BLOG-02)"
         int last_post_no "마지막으로 쓴 글 번호. 줄지 않음"
         datetime deleted_at "null. 블로그 삭제·탈퇴(P3)"
         bigint active_owner_id UK "생성 열. 살아 있으면 owner_id"
@@ -162,7 +163,6 @@ erDiagram
     images {
         bigint id PK
         bigint uploader_id FK "null. 탈퇴하면 null"
-        bigint post_id FK "null. 글에 쓰이기 전이면 null"
         varchar file "UUID 이름 경로"
         varchar thumb_file "목록용 작은 이미지"
         varchar content_type "jpeg | png | gif | webp"
@@ -170,6 +170,11 @@ erDiagram
         int height
         int size_bytes "10MB 이하"
         datetime created_at
+    }
+
+    post_images {
+        bigint post_id PK, FK
+        bigint image_id PK, FK
     }
 
     post_views {
@@ -261,7 +266,7 @@ erDiagram
     }
 ```
 
-- 그림에서 `users`와 `images`의 `profile_image_id`, `posts`와 `images`의 `cover_image_id`·`first_image_id`, `hidden_by_id`·`released_by_id`(→ `users`) 관계선은 그림이 복잡해지지 않게 생략했다. 열과 FK 표시는 위 엔티티에 있다.
+- 그림에서 `posts`와 `images`의 `cover_image_id`·`first_image_id`, `hidden_by_id`·`released_by_id`(→ `users`) 관계선은 그림이 복잡해지지 않게 생략했다. 열과 FK 표시는 위 엔티티에 있다.
 - `ranking_entries.blog_id`(→ `blogs`)는 P3 인기 블로거용이다. 열은 P2에서 함께 만들어 두되 P3 전까지 비워 둔다. 같은 테이블을 두 번 고치지 않기 위해서이며, 기능은 미리 만들지 않는다.
 
 ### 1.2 P3에서 더하는 것
@@ -356,7 +361,7 @@ Django `AbstractBaseUser` + `PermissionsMixin` 바탕의 사용자 정의 모델
 | email | VARCHAR(254) UK null | 이메일 가입자는 필수. 소셜 가입자는 제공사가 준 경우만(AUTH-01). 소문자로 바꿔 저장 |
 | password | VARCHAR(128) | Argon2 해시(원칙 III). 소셜 전용 회원은 '사용 불가' 값 |
 | nickname | VARCHAR(20) UK null | 앞뒤 공백 뺀 2~20자, 겹칠 수 없음(AUTH-01f). 탈퇴하면 null로 풀어 준다 |
-| profile_image_id | FK → images null (SET_NULL) | 회원 프로필. 블로그 프로필과 별개(AUTH-05). 댓글 작성자 옆에 보인다 |
+| profile_image | VARCHAR(255) null | 회원 프로필 파일 경로(Django `ImageField`). 블로그 프로필과 별개(AUTH-05). 댓글 작성자 옆에 보인다. 업로드 검사는 글 이미지와 같은 함수를 쓰고, 바꾸면 이전 파일을 지운다 |
 | role | VARCHAR(10) | `MEMBER` \| `ADMIN`. 기본 `MEMBER`. `ADMIN`은 관리 명령 `create_service_admin`으로만 지정(ADMIN-01) |
 | terms_agreed_at | DATETIME | 이용약관 동의 시각(AUTH-01e) |
 | privacy_agreed_at | DATETIME | 개인정보 수집·이용 동의 시각 |
@@ -371,7 +376,7 @@ Django `AbstractBaseUser` + `PermissionsMixin` 바탕의 사용자 정의 모델
 - **로그인 방식**은 allauth 테이블로 안다. `account_emailaddress`(이메일 가입, `verified`가 인증 여부)와 `socialaccount_socialaccount`(`provider` = `kakao` \| `google` \| `naver`, `(provider, uid)` 유일). 한 회원은 둘 중 한 가지 방식만 가진다(AUTH-01d, 계정 연결 없음).
 - allauth 테이블 두 개는 allauth 마이그레이션이 만든다. Crowfoot에서 DDL을 내보내 DB를 만들지 않는다. `account_emailaddress.primary`는 MySQL 예약어라 백틱 없이 내보낸 DDL은 실패한다.
 - **이용 제한 중인지**는 열로 두지 않고 `user_sanctions`에서 계산한다(6절).
-- **탈퇴**(AUTH-06, P3): 행은 지우지 않는다. `email`·`nickname`·`profile_image_id`를 null로, `password`를 사용 불가로, `is_active=false`, `withdrawn_at` 기록. allauth 행과 세션은 지운다. 나머지는 8절.
+- **탈퇴**(AUTH-06, P3): 행은 지우지 않는다. `email`·`nickname`·`profile_image`를 null로(파일도 지움), `password`를 사용 불가로, `is_active=false`, `withdrawn_at` 기록. allauth 행과 세션은 지운다. 나머지는 8절.
 
 ---
 
@@ -386,7 +391,7 @@ Django `AbstractBaseUser` + `PermissionsMixin` 바탕의 사용자 정의 모델
 | address | VARCHAR(32) UK | 영문 소문자·숫자·하이픈 4~32자, 하이픈으로 시작·끝 불가, 예약어 불가(BLOG-01a). **바꿀 수 없음. 블로그가 삭제돼도 행이 남아 영구 예약**(BLOG-01b) |
 | name | VARCHAR(40) | 1~40자(BLOG-01d) |
 | description | VARCHAR(200) | 0~200자. 비면 소개 자리를 숨김(BLOG-02) |
-| profile_image_id | FK → images null (SET_NULL) | 없으면 기본 이미지 |
+| profile_image | VARCHAR(255) null | 블로그 프로필 파일 경로(Django `ImageField`). 없으면 기본 이미지. 검사·정리는 회원 프로필과 같다 |
 | last_post_no | INT UNSIGNED | 기본 0. 글을 발행할 때 1 올려 그 값을 글 번호로 준다. **줄어들지 않으므로 지운 번호를 다시 쓰지 않는다**(POST-01d) |
 | deleted_at | DATETIME null | 블로그 삭제·탈퇴(P3) |
 | active_owner_id | BIGINT 생성 열 UK null | `IF(deleted_at IS NULL, owner_id, NULL)` STORED. **살아 있는 블로그는 회원당 하나**(BLOG-01). 삭제한 뒤에는 다른 주소로 다시 개설할 수 있다(BLOG-07) |
@@ -535,14 +540,16 @@ stateDiagram-v2
 | --- | --- | --- |
 | id | BIGINT PK | |
 | uploader_id | FK → users null (SET_NULL) | |
-| post_id | FK → posts null (SET_NULL) | 본문 이미지면 그 글. 글 저장 전이면 null. 저장할 때 본문에 남은 이미지만 연결한다 |
 | file | VARCHAR(255) | 저장 경로. 이름은 UUID |
 | thumb_file | VARCHAR(255) | 목록용 가로 480px(COM-P03) |
 | content_type | VARCHAR(20) | Pillow가 판단한 `image/jpeg` \| `image/png` \| `image/gif` \| `image/webp` |
 | width, height | INT | 비율 유지 표시용 |
 | size_bytes | INT | 10MB 이하 |
 
-- 24시간이 지나도 어떤 글·회원 프로필·블로그 프로필에도 쓰이지 않는 이미지는 `cleanup` 명령이 파일과 행을 지운다(review C-07).
+- `images`는 글 본문 이미지만 담는다. 프로필 이미지는 회원·블로그 행의 파일 경로 열이다.
+- **글과의 연결은 `post_images`(`post_id`, `image_id` 복합 PK, 양쪽 CASCADE)** 가 맡는다. 글을 저장할 때 본문에 남은 이미지로 다시 만든다. 남의 이미지는 연결하지 않는다(`uploader_id` 검사).
+- 24시간이 지나도 `post_images`에 연결이 없고 어느 글의 `cover_image_id`·`first_image_id`도 아닌 이미지는 `cleanup` 명령이 파일과 행을 지운다(review C-07).
+- **FK 순환 참조를 두지 않는다.** 처음에는 `users`·`blogs`·`posts` → `images`와 `images` → `users`·`posts`가 서로 가리켰다. 프로필을 경로 열로, 글 연결을 `post_images`로 바꿔 FK가 한 방향으로만 흐른다(`posts` → `images` → `users`). 자기 참조인 `categories.parent_id`만 남는다.
 
 ### post_views (P2)
 
@@ -675,7 +682,7 @@ stateDiagram-v2
 
 | 작업 | 함께 삭제 | 남김 |
 | --- | --- | --- |
-| 글 삭제 (POST-03) | 댓글, 공감, 태그 연결, 조회 기록, 순위 항목, (P3) 저장·알림 | 블로그의 `last_post_no`(번호 재사용 방지). 이미지 파일은 `cleanup`이 나중에 |
+| 글 삭제 (POST-03) | 댓글, 공감, 태그 연결, 이미지 연결(`post_images`), 조회 기록, 순위 항목, (P3) 저장·알림 | 블로그의 `last_post_no`(번호 재사용 방지). 이미지 파일은 `cleanup`이 나중에 |
 | 카테고리 삭제 (CAT-01) | 없음 | 글은 미분류로 이동 |
 | 태그 삭제 (TAG-04, P3) | 태그 연결 | 글 |
 | 블로그 삭제 (BLOG-07, P3) | 글(위 규칙대로), 카테고리, 태그, 방명록, 구독 | 블로그 행(`deleted_at` 기록, 주소 영구 예약) |
@@ -731,7 +738,7 @@ stateDiagram-v2
 | `posts.thumbnail_url` | `cover_image_id`, `first_image_id` (이미지 FK) | 쓰지 않는 이미지 정리, 목록용 작은 이미지 |
 | `RESERVED_WORD` 테이블 | 코드 상수 | URL 설정과 함께 바뀌어야 함 |
 | `USER.email`·`password_hash`·`social_provider`·`social_id` | `users` + allauth 테이블 | 메일 인증·소셜 연결을 allauth가 관리 |
-| `USER.profile_image_url` | `users.profile_image_id` | 이미지 검증·정리를 한곳에서 |
+| `USER.profile_image_url` | `users.profile_image` (파일 경로) | 이름만 맞춤. FK 순환을 피하려고 `images` 대신 경로 열로 둔다(4절 images) |
 | 없음 | `users.terms_agreed_at`, `privacy_agreed_at` | AUTH-01e |
 | `TAG.name VARCHAR(30)` | `VARCHAR(20)` | TAG-01 |
 | 없음 | `posts.content_text`, `excerpt`, `first_image_id` | 검색, 목록 요약, 대표 이미지를 목록에서 빠르게 |
