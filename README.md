@@ -7,9 +7,12 @@
 
 ```
 blog-docs/
+├── .claude/skills/speckit-*/        # Claude Code용 Spec Kit 명령 (/speckit-tasks 등)
 ├── .specify/
-│   └── memory/
-│       └── constitution.md      # 프로젝트 원칙 (모든 단계가 지킬 기준)
+│   ├── memory/
+│   │   └── constitution.md      # 프로젝트 원칙 (모든 단계가 지킬 기준)
+│   ├── scripts/bash/            # Spec Kit 명령이 부르는 스크립트
+│   └── templates/               # spec·plan·tasks 틀
 ├── specs/
 │   └── 001-blog/
 │       ├── spec.md                  # Spec Kit 기능 명세 (무엇을, 왜)
@@ -33,3 +36,9 @@ blog-docs/
 2. `/speckit.clarify`: 미결정 사항 모두 정리 완료 (2026-10-07)
 3. `/speckit.plan`: 기술 스택(Django 5.2 + MySQL 8.4), 화면 주소, ERD (2026-10-08)
 4. `/speckit.tasks`: 작업 목록 (다음 단계) → `/speckit.implement`
+
+Spec Kit 1.1(`specify init`)의 스크립트·템플릿·명령을 저장소에 넣어 두었습니다(constitution은 우리 것 유지). 명령을 돌리기 전에 기능 폴더를 한 번 지정합니다. 이 값은 `.specify/feature.json`에 저장되며 커밋하지 않습니다.
+
+```bash
+SPECIFY_FEATURE_DIRECTORY=specs/001-blog bash .specify/scripts/bash/check-prerequisites.sh --json
+```

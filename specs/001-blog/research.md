@@ -169,7 +169,7 @@
 - **Decision**: **pytest + pytest-django**(단위·통합), **Playwright for Python**(브라우저 E2E), **ruff**(검사·서식). 테스트 DB도 MySQL 8.4(정렬 규칙·생성 열이 운영과 같아야 함).
 - **요구사항 ID 표기**: 테스트마다 `@pytest.mark.req("POST-04a")` 표시를 단다. `pytest -m` 대신 `pytest --req POST-04a`로 한 요구사항의 테스트만 돌릴 수 있게 `conftest.py`에 작은 옵션을 둔다. 수용 시나리오는 `US2-8` 같은 이름도 함께 단다.
 - **권한표 테스트**: COM-01 표를 `tests/permissions/matrix.py`에 데이터로 옮기고, 비회원·회원·블로그 주인·서비스 관리자 네 상태로 모든 ✕ 칸을 주소 직접 요청으로 시도한다(SC-004). 이 테스트와 공개 범위·중복 처리 테스트는 구현보다 먼저 쓴다.
-- **명령 하나**: `uv run pytest`가 단위·통합을 모두 돌린다. E2E는 `uv run pytest tests/e2e`.
+- **명령 하나**: `make test`가 ruff 검사, 단위·통합, E2E(크로미움·웹킷)를 차례로 모두 돌린다(원칙 V). 개발 중에는 `uv run pytest`(단위·통합만)나 `uv run pytest --req POST-04a`처럼 일부만 돌려도 된다. 병합 전 확인과 CI는 `make test` 하나다.
 - **Rationale**: Playwright 하나로 크로미움(크롬·엣지)·웹킷(사파리) 엔진과 360px 화면을 확인할 수 있다(SC-008, SC-009).
 - **Alternatives considered**: **factory_boy**(테스트 데이터 생성)는 편하지만 필수는 아니다. pytest 픽스처 함수로 시작하고, 반복이 많아지면 plan을 고쳐 들인다(원칙 VI). **Selenium**: 브라우저 드라이버 관리가 번거롭다.
 
@@ -222,7 +222,7 @@ spec에서 10개로 확정했다. 주소에 쓸 이름(slug)만 여기서 정한
 - **Alternatives considered**: **PaaS(Render, Fly.io 등)**: MySQL·정기 작업·디스크를 각각 따로 구성해야 한다. **쿠버네티스**: 이 규모에 과하다.
 - **메일**(review J-04): 운영은 SMTP 발송 서비스(예: Amazon SES), 발신 도메인에 SPF·DKIM을 설정한다. 개발은 **Mailpit**(가짜 메일함).
 - **백업**(review J-01): 매일 `mysqldump`와 이미지 폴더를 다른 저장소로 복사하고 14일치를 보관한다. 한 달에 한 번 복구를 실제로 해 본다.
-- **오류 기록**(review J-05): 사용자 화면에는 내부 정보를 보이지 않고(원칙 III), 운영자는 Gunicorn·Django 로그(표준 출력 → Docker 로그)와 500 오류 메일(`ADMINS`)로 본다. 로그에 비밀번호·토큰·세션 값을 남기지 않도록 요청 본문은 기록하지 않는다.
+- **오류 기록**(review J-05): 사용자 화면에는 내부 정보를 보이지 않고(원칙 III), 운영자는 Gunicorn·Django 로그(표준 출력 → Docker 로그)와 500 오류 메일(`ADMINS`)로 본다. 로그에 비밀번호·토큰·세션 값을 남기지 않도록 요청 본문은 기록하지 않는다. 메일 인증·비밀번호 재설정 키는 allauth 주소 경로(`/accounts/confirm-email/{key}/`, `/accounts/password/reset/key/{key}/`)에 들어가므로, Caddy 접근 로그와 Gunicorn 접근 로그에서 이 두 경로의 키 부분을 `***`로 바꿔 기록한다(Caddy `log` 필터, Gunicorn `access_log_format`에서 경로 대신 가린 값). 키는 한 번 쓰면 끝나고 재설정 키는 1시간 뒤 만료된다(원칙 III).
 - **비밀 값**: `.env`(저장소에 올리지 않음, `.env.example`만 커밋)로 넣는다(원칙 III).
 
 ## 17. 원칙을 코드에서 지키는 장치
