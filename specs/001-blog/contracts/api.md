@@ -50,10 +50,6 @@
 - 본문: `{ "draft_id": null, "title": "...", "content": "<p>...</p>", "category_id": 3, "topic_id": 4, "tags": ["여행"], "visibility": "PUBLIC" }`
 - `200`: `{ "draft_id": 12, "saved_at": "2026-10-08T13:05:00+09:00" }`. 제목·본문이 비어도 저장된다. 임시저장은 글 번호를 쓰지 않는다(POST-01d).
 
-### `GET /api/tags?prefix={p}` · 내 블로그 태그 자동완성 (P2)
-
-- 권한: 주인 / `200`: `{ "tags": ["여행", "여행기"] }` (최대 10개)
-
 ## 공감·구독
 
 ### `PUT /api/posts/{post_id}/like` · `DELETE /api/posts/{post_id}/like` (SOC-01)
