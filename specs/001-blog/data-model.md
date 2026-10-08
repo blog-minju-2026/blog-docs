@@ -101,7 +101,7 @@ erDiagram
     }
 
     topics {
-        smallint id PK
+        bigint id PK
         varchar name UK "10개 고정(POST-11)"
         varchar slug UK "주소용 이름"
         smallint sort_order
@@ -132,7 +132,7 @@ erDiagram
         bigint blog_id FK
         int post_no "null. 블로그 안 글 번호, 발행 때 부여"
         bigint category_id FK "null = 미분류"
-        smallint topic_id FK "null = 주제 없음(P2)"
+        bigint topic_id FK "null = 주제 없음(P2)"
         varchar title "발행 시 1~100자"
         longtext content "정제한 HTML"
         longtext content_text "서식 뺀 본문(검색)"
@@ -230,7 +230,7 @@ erDiagram
     ranking_entries {
         bigint id PK
         bigint snapshot_id FK
-        smallint rank "1부터"
+        smallint position "순위, 1부터"
         bigint post_id FK "null. kind = POST"
         bigint blog_id FK "null. kind = BLOGGER(P3)"
         int score "구간 조회수"
@@ -364,6 +364,7 @@ Django `AbstractBaseUser` + `PermissionsMixin` 바탕의 사용자 정의 모델
 
 - **만 14세 이상 확인**(AUTH-01e)은 가입 폼의 필수 체크 칸이다. 체크하지 않으면 가입되지 않으므로, 가입된 회원은 모두 확인을 거쳤다. 따로 열로 두지 않는다.
 - **로그인 방식**은 allauth 테이블로 안다. `account_emailaddress`(이메일 가입, `verified`가 인증 여부)와 `socialaccount_socialaccount`(`provider` = `kakao` \| `google` \| `naver`, `(provider, uid)` 유일). 한 회원은 둘 중 한 가지 방식만 가진다(AUTH-01d, 계정 연결 없음).
+- allauth 테이블 두 개는 allauth 마이그레이션이 만든다. Crowfoot에서 DDL을 내보내 DB를 만들지 않는다. `account_emailaddress.primary`는 MySQL 예약어라 백틱 없이 내보낸 DDL은 실패한다.
 - **이용 제한 중인지**는 열로 두지 않고 `user_sanctions`에서 계산한다(6절).
 - **탈퇴**(AUTH-06, P3): 행은 지우지 않는다. `email`·`nickname`·`profile_image_id`를 null로, `password`를 사용 불가로, `is_active=false`, `withdrawn_at` 기록. allauth 행과 세션은 지운다. 나머지는 8절.
 
@@ -411,7 +412,7 @@ Django `AbstractBaseUser` + `PermissionsMixin` 바탕의 사용자 정의 모델
 
 | 필드 | 타입 | 규칙 |
 | --- | --- | --- |
-| id | SMALLINT PK | |
+| id | BIGINT PK | |
 | name | VARCHAR(20) UK | 10개([research.md](./research.md) 15절) |
 | slug | VARCHAR(30) UK | `/topic/{slug}` |
 | sort_order | SMALLINT | |
@@ -605,7 +606,7 @@ stateDiagram-v2
 | --- | --- | --- |
 | id | BIGINT PK | |
 | snapshot_id | FK (CASCADE) | |
-| rank | SMALLINT | 1부터. `(snapshot_id, rank)` 유일 |
+| position | SMALLINT | 순위, 1부터. `(snapshot_id, position)` 유일. `rank`는 MySQL 예약어라 쓰지 않는다 |
 | post_id | FK → posts null (CASCADE) | kind = POST |
 | blog_id | FK → blogs null (CASCADE) | kind = BLOGGER(P3) |
 | score | INT | 구간 조회수(인기 블로거는 그 블로그 볼 수 있는 글 조회수 합, HOME-04) |
