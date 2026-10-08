@@ -1,0 +1,748 @@
+# Data Model: 한채 블로그 플랫폼
+
+**Feature**: `001-blog` | **Date**: 2026-10-08 | **Plan**: [plan.md](./plan.md)
+
+spec의 Key Entities를 Django 모델과 MySQL 8.4 테이블로 옮긴 것이다. 팀 ERD 기본안(`ERD.md`)과 민주의 파트 2 DDL(`erd_part2.sql`)을 바탕으로, 한채가 고른 선택 항목(spec Assumptions)에 맞춰 줄이거나 더했다. 팀 ERD와 다른 점은 맨 아래 10절에 모았다.
+
+**표기**
+
+- `PK` 기본 키, `FK` 외래 키, `UK` 유일 키, `null` 비워 둘 수 있음. 타입은 MySQL 타입이다.
+- 테이블 이름은 팀 DDL처럼 복수형 영어 이름으로 Django `db_table`에 지정한다. allauth가 만드는 테이블만 allauth 이름을 그대로 쓴다.
+- 문자셋 `utf8mb4`, 정렬 규칙 `utf8mb4_0900_as_ci`(영문 대소문자 무시, [research.md](./research.md) 3절). 그래서 문자열 유일 키는 대소문자만 다른 값을 같은 값으로 본다.
+- 시각은 모두 UTC로 저장하고 화면에서 한국 시간으로 바꾼다(COM-P07). 모든 테이블에 `created_at`이 있고, 고칠 수 있는 테이블에는 `updated_at`이 있다. ERD에는 넣었고 아래 필드 표에서는 생략한다.
+- **단계**: 표 제목의 `(P2)`·`(P3)`는 그 테이블을 처음 만드는 우선순위다. P1·P2 테이블은 기반 단계에서 한꺼번에 만들고, P3 전용 테이블과 열은 그 기능을 만들 때 마이그레이션으로 더한다(원칙 VI "미리 만들지 않는다").
+
+---
+
+## 1. ERD
+
+Crowfoot에도 같은 P1·P2 ERD가 있다: [한채 블로그 플랫폼](https://crowfoot.java21.net/workspaces/59/models/670) (테이블 19개, 도메인 6개, 요구사항 12개 연결). 이 문서와 Crowfoot이 다르면 이 문서를 기준으로 Crowfoot을 고친다.
+
+### 1.1 P1·P2 전체 (처음 만드는 테이블)
+
+```mermaid
+erDiagram
+    users ||--o{ account_emailaddress : "이메일 인증(allauth)"
+    users ||--o{ socialaccount_socialaccount : "소셜 계정(allauth)"
+    users ||--o{ blogs : "개설(살아 있는 블로그 최대 1개)"
+    users |o--o{ images : "업로드"
+    users ||--o{ comments : "작성"
+    users ||--o{ guestbook_entries : "작성"
+    users ||--o{ post_likes : "공감"
+    users ||--o{ subscriptions : "구독"
+    users ||--o{ user_sanctions : "이용 제한 대상"
+    users ||--o{ admin_logs : "처리한 관리자"
+
+    blogs ||--o{ posts : "소유"
+    blogs ||--o{ categories : "보유"
+    blogs ||--o{ tags : "보유"
+    blogs ||--o{ guestbook_entries : "받음"
+    blogs ||--o{ subscriptions : "구독 대상"
+
+    categories |o--o{ categories : "하위(1단계, P2)"
+    categories |o--o{ posts : "분류(null = 미분류)"
+    topics |o--o{ posts : "주제(null = 주제 없음)"
+    posts ||--o{ post_tags : "태그 연결"
+    tags ||--o{ post_tags : "글 연결"
+    posts ||--o{ post_images : "본문 이미지 연결"
+    images ||--o{ post_images : "쓰인 글"
+    posts ||--o{ comments : "댓글"
+    posts ||--o{ post_likes : "공감받음"
+    posts ||--o{ post_views : "조회 기록"
+
+    ranking_snapshots ||--o{ ranking_entries : "순위"
+    posts |o--o{ ranking_entries : "인기 글"
+
+    users {
+        bigint id PK
+        varchar email UK "null. 소셜 가입은 없을 수 있음"
+        varchar password "Argon2 해시. 소셜 전용이면 사용 불가 표시"
+        varchar nickname UK "null. 2~20자, 탈퇴하면 null"
+        varchar profile_image "null. 회원 프로필 파일 경로(AUTH-05)"
+        varchar role "MEMBER | ADMIN"
+        datetime terms_agreed_at "이용약관 동의(AUTH-01e)"
+        datetime privacy_agreed_at "개인정보 수집·이용 동의"
+        boolean is_active "탈퇴하면 false"
+        boolean is_staff "Django 운영자(/django-admin/)"
+        boolean is_superuser "Django 모든 권한"
+        datetime withdrawn_at "null. P3"
+        datetime last_login "null"
+        datetime created_at
+        datetime updated_at
+    }
+
+    account_emailaddress {
+        int id PK
+        bigint user_id FK
+        varchar email UK
+        boolean verified "메일 인증 여부(AUTH-01a)"
+        boolean primary
+    }
+
+    socialaccount_socialaccount {
+        int id PK
+        bigint user_id FK
+        varchar provider "kakao | google | naver"
+        varchar uid "provider + uid 유일"
+        json extra_data "제공사가 준 정보"
+        datetime last_login
+        datetime date_joined
+    }
+
+    blogs {
+        bigint id PK
+        bigint owner_id FK
+        varchar address UK "4~32자, 변경 불가, 영구 예약"
+        varchar name "1~40자"
+        varchar description "0~200자"
+        varchar profile_image "null. 블로그 프로필 파일 경로(BLOG-02)"
+        int last_post_no "마지막으로 쓴 글 번호. 줄지 않음"
+        datetime deleted_at "null. 블로그 삭제·탈퇴(P3)"
+        bigint active_owner_id UK "생성 열. 살아 있으면 owner_id"
+        datetime created_at
+        datetime updated_at
+    }
+
+    topics {
+        bigint id PK
+        varchar name UK "10개 고정(POST-11)"
+        varchar slug UK "주소용 이름"
+        smallint sort_order
+        datetime created_at
+        datetime updated_at
+    }
+
+    categories {
+        bigint id PK "카테고리 주소 번호(CAT-02)"
+        bigint blog_id FK
+        bigint parent_id FK "null. 한 단계까지(P2)"
+        varchar name "1~20자"
+        int sort_order "사이드바 순서(P2)"
+        bigint parent_key "생성 열 IFNULL(parent_id, 0)"
+        datetime created_at
+        datetime updated_at
+    }
+
+    tags {
+        bigint id PK
+        bigint blog_id FK
+        varchar name "1~20자. blog_id + name 유일"
+        datetime created_at
+    }
+
+    posts {
+        bigint id PK "내부 ID"
+        bigint blog_id FK
+        int post_no "null. 블로그 안 글 번호, 발행 때 부여"
+        bigint category_id FK "null = 미분류"
+        bigint topic_id FK "null = 주제 없음(P2)"
+        varchar title "발행 시 1~100자"
+        longtext content "정제한 HTML"
+        longtext content_text "서식 뺀 본문(검색)"
+        varchar excerpt "서식 뺀 앞 150자(목록)"
+        bigint cover_image_id FK "null. 고른 대표 이미지(P2)"
+        bigint first_image_id FK "null. 본문 첫 이미지"
+        varchar status "DRAFT | PUBLISHED"
+        varchar visibility "PUBLIC | PRIVATE"
+        datetime published_at "null. 발행일(COM-P02)"
+        boolean ever_public "한 번이라도 공개됐는지"
+        int view_count "중복 뺀 조회수(P2)"
+        datetime hidden_at "null. 관리자 숨김(P2)"
+        varchar hidden_reason "null"
+        bigint hidden_by_id FK "null"
+        char client_token "null. 발행 중복 방지"
+        datetime created_at
+        datetime updated_at
+    }
+
+    post_tags {
+        bigint post_id PK, FK
+        bigint tag_id PK, FK
+    }
+
+    images {
+        bigint id PK
+        bigint uploader_id FK "null. 탈퇴하면 null"
+        varchar file "UUID 이름 경로"
+        varchar thumb_file "목록용 작은 이미지"
+        varchar content_type "jpeg | png | gif | webp"
+        int width
+        int height
+        int size_bytes "10MB 이하"
+        datetime created_at
+    }
+
+    post_images {
+        bigint post_id PK, FK
+        bigint image_id PK, FK
+    }
+
+    post_views {
+        bigint id PK
+        bigint post_id FK
+        char viewer_key "방문자 키 SHA-256"
+        datetime viewed_at
+    }
+
+    comments {
+        bigint id PK
+        bigint post_id FK
+        bigint author_id FK
+        text content "1~1,000자, 순수 텍스트"
+        datetime edited_at "null. 수정 시각(P2)"
+        datetime hidden_at "null. 관리자 숨김(P2)"
+        varchar hidden_reason "null"
+        bigint hidden_by_id FK "null"
+        char client_token "null. author_id + client_token 유일"
+        datetime created_at
+        datetime updated_at
+    }
+
+    guestbook_entries {
+        bigint id PK
+        bigint blog_id FK
+        bigint author_id FK
+        text content "1~1,000자"
+        datetime edited_at "null"
+        datetime hidden_at "null"
+        varchar hidden_reason "null"
+        bigint hidden_by_id FK "null"
+        char client_token "null"
+        datetime created_at
+        datetime updated_at
+    }
+
+    post_likes {
+        bigint id PK
+        bigint user_id FK "user_id + post_id 유일"
+        bigint post_id FK
+        datetime created_at
+    }
+
+    subscriptions {
+        bigint id PK
+        bigint subscriber_id FK "subscriber_id + blog_id 유일(P2)"
+        bigint blog_id FK
+        datetime created_at
+    }
+
+    ranking_snapshots {
+        bigint id PK
+        varchar kind "POST | BLOGGER(P3)"
+        datetime window_end "기준 정각. kind + window_end 유일"
+        varchar basis "1H | 24H | EMPTY"
+        datetime created_at
+    }
+
+    ranking_entries {
+        bigint id PK
+        bigint snapshot_id FK
+        smallint position "순위, 1부터"
+        bigint post_id FK "null. kind = POST"
+        bigint blog_id FK "null. kind = BLOGGER(P3)"
+        int score "구간 조회수"
+    }
+
+    user_sanctions {
+        bigint id PK
+        bigint user_id FK "ADMIN은 대상 불가"
+        bigint admin_id FK
+        varchar reason "필수"
+        datetime starts_at
+        datetime ends_at "null = 영구"
+        datetime released_at "null. 기한 전 해제"
+        bigint released_by_id FK "null"
+        datetime created_at
+    }
+
+    admin_logs {
+        bigint id PK
+        bigint admin_id FK
+        varchar action "HIDE_POST 등"
+        varchar target_type "post | comment | guestbook | user"
+        bigint target_id
+        varchar reason
+        datetime created_at "추가만, 수정·삭제 불가"
+    }
+```
+
+- 그림에서 `posts`와 `images`의 `cover_image_id`·`first_image_id`, `hidden_by_id`·`released_by_id`(→ `users`) 관계선은 그림이 복잡해지지 않게 생략했다. 열과 FK 표시는 위 엔티티에 있다.
+- `ranking_entries.blog_id`(→ `blogs`)는 P3 인기 블로거용이다. 열은 P2에서 함께 만들어 두되 P3 전까지 비워 둔다. 같은 테이블을 두 번 고치지 않기 위해서이며, 기능은 미리 만들지 않는다.
+
+### 1.2 P3에서 더하는 것
+
+그 기능을 만들 때 마이그레이션으로 더한다. 열 이름과 규칙은 팀 ERD를 따른다.
+
+```mermaid
+erDiagram
+    users ||--o{ post_saves : "저장(SOC-03)"
+    posts ||--o{ post_saves : "저장됨"
+    users ||--o{ notifications : "수신(SUB-04)"
+    users ||--o{ reports : "신고(ADMIN-04)"
+    blogs ||--o{ blog_blocked_users : "댓글 차단(MNG-04)"
+    users ||--o{ blog_blocked_users : "차단됨"
+    blogs ||--o{ blog_banned_words : "금칙어(MNG-04)"
+    blogs ||--o{ visit_stats : "방문 통계(MNG-03)"
+    users ||--o{ notices : "공지 작성(ADMIN-06)"
+    comments |o--o{ comments : "답글 1단계(CMT-05)"
+
+    post_saves {
+        bigint id PK
+        bigint user_id FK "user_id + post_id 유일"
+        bigint post_id FK
+        datetime created_at
+    }
+    notifications {
+        bigint id PK
+        bigint recipient_id FK
+        bigint actor_id FK "recipient와 같으면 만들지 않음"
+        varchar type "COMMENT | LIKE | SUBSCRIBE | NEW_POST"
+        bigint post_id FK "null"
+        datetime read_at "null"
+        datetime created_at
+    }
+    reports {
+        bigint id PK
+        bigint reporter_id FK
+        varchar target_type "post | comment"
+        bigint target_id "reporter + target 유일"
+        varchar reason
+        varchar status "PENDING | HIDDEN | DISMISSED"
+        bigint handled_by_id FK "null"
+        datetime handled_at "null"
+        datetime created_at
+    }
+    blog_blocked_users {
+        bigint blog_id PK, FK
+        bigint user_id PK, FK
+        datetime created_at
+    }
+    blog_banned_words {
+        bigint id PK
+        bigint blog_id FK
+        varchar word "blog_id + word 유일"
+    }
+    visit_stats {
+        bigint blog_id PK, FK
+        date date PK
+        int visitors
+    }
+    notices {
+        bigint id PK
+        bigint author_id FK
+        varchar title
+        text content
+        datetime created_at
+    }
+```
+
+P3에서 기존 테이블에 더하는 열:
+
+| 테이블 | 열 | 기능 |
+| --- | --- | --- |
+| `blogs` | `skin VARCHAR(30)`, `header_image_id BIGINT null` | BLOG-05 꾸미기 |
+| `blogs` | `restricted_at`, `restricted_reason`, `restricted_by_id` | ADMIN-05 블로그 이용 제한 |
+| `posts` | `scheduled_at DATETIME null`, `status`에 `SCHEDULED` 추가 | POST-13 예약 발행 |
+| `posts` | `is_comment_allowed BOOL` (기본 true) | CMT-07 |
+| `categories` | `is_private BOOL` (기본 false) | CAT-05 |
+| `comments` | `parent_id BIGINT null`, `is_secret BOOL`, `deleted_at DATETIME null` | CMT-05·06 |
+
+---
+
+## 2. 회원·인증 (`accounts` 앱)
+
+### users
+
+Django `AbstractBaseUser` + `PermissionsMixin` 바탕의 사용자 정의 모델. 기반 단계 첫 마이그레이션에서 만든다(나중에 바꾸기 어렵다).
+
+| 필드 | 타입 | 규칙 |
+| --- | --- | --- |
+| id | BIGINT PK | |
+| email | VARCHAR(254) UK null | 이메일 가입자는 필수. 소셜 가입자는 제공사가 준 경우만(AUTH-01). 소문자로 바꿔 저장 |
+| password | VARCHAR(128) | Argon2 해시(원칙 III). 소셜 전용 회원은 '사용 불가' 값 |
+| nickname | VARCHAR(20) UK null | 앞뒤 공백 뺀 2~20자, 겹칠 수 없음(AUTH-01f). 탈퇴하면 null로 풀어 준다 |
+| profile_image | VARCHAR(255) null | 회원 프로필 파일 경로(Django `ImageField`). 블로그 프로필과 별개(AUTH-05). 댓글 작성자 옆에 보인다. 업로드 검사는 글 이미지와 같은 함수를 쓰고, 바꾸면 이전 파일을 지운다 |
+| role | VARCHAR(10) | `MEMBER` \| `ADMIN`. 기본 `MEMBER`. `ADMIN`은 관리 명령 `create_service_admin`으로만 지정(ADMIN-01) |
+| terms_agreed_at | DATETIME | 이용약관 동의 시각(AUTH-01e) |
+| privacy_agreed_at | DATETIME | 개인정보 수집·이용 동의 시각 |
+| is_active | BOOL | 탈퇴하면 false |
+| is_staff | BOOL | 기본 false. `/django-admin/`에 들어갈 수 있는 운영자. 서비스 관리자(`role = ADMIN`)와 다른 개념이다. `createsuperuser`로만 켠다 |
+| is_superuser | BOOL | 기본 false. Django의 모든 권한. 운영자 1~2명만 |
+| withdrawn_at | DATETIME null | P3(AUTH-06) |
+| last_login | DATETIME null | |
+
+- `PermissionsMixin`이 만드는 연결 테이블 `users_groups`, `users_user_permissions`와 Django 기본 테이블(`django_session`, `auth_permission` 등)은 프레임워크가 만들므로 ERD에 넣지 않는다.
+- **만 14세 이상 확인**(AUTH-01e)은 가입 폼의 필수 체크 칸이다. 체크하지 않으면 가입되지 않으므로, 가입된 회원은 모두 확인을 거쳤다. 따로 열로 두지 않는다.
+- **로그인 방식**은 allauth 테이블로 안다. `account_emailaddress`(이메일 가입, `verified`가 인증 여부)와 `socialaccount_socialaccount`(`provider` = `kakao` \| `google` \| `naver`, `(provider, uid)` 유일). 한 회원은 둘 중 한 가지 방식만 가진다(AUTH-01d, 계정 연결 없음).
+- allauth 테이블 두 개는 allauth 마이그레이션이 만든다. Crowfoot에서 DDL을 내보내 DB를 만들지 않는다. `account_emailaddress.primary`는 MySQL 예약어라 백틱 없이 내보낸 DDL은 실패한다.
+- **이용 제한 중인지**는 열로 두지 않고 `user_sanctions`에서 계산한다(6절).
+- **탈퇴**(AUTH-06, P3): 행은 지우지 않는다. `email`·`nickname`·`profile_image`를 null로(파일도 지움), `password`를 사용 불가로, `is_active=false`, `withdrawn_at` 기록. allauth 행과 세션은 지운다. 나머지는 8절.
+
+---
+
+## 3. 블로그 (`blogs` 앱)
+
+### blogs
+
+| 필드 | 타입 | 규칙 |
+| --- | --- | --- |
+| id | BIGINT PK | |
+| owner_id | FK → users (PROTECT) | |
+| address | VARCHAR(32) UK | 영문 소문자·숫자·하이픈 4~32자, 하이픈으로 시작·끝 불가, 예약어 불가(BLOG-01a). **바꿀 수 없음. 블로그가 삭제돼도 행이 남아 영구 예약**(BLOG-01b) |
+| name | VARCHAR(40) | 1~40자(BLOG-01d) |
+| description | VARCHAR(200) | 0~200자. 비면 소개 자리를 숨김(BLOG-02) |
+| profile_image | VARCHAR(255) null | 블로그 프로필 파일 경로(Django `ImageField`). 없으면 기본 이미지. 검사·정리는 회원 프로필과 같다 |
+| last_post_no | INT UNSIGNED | 기본 0. 글을 발행할 때 1 올려 그 값을 글 번호로 준다. **줄어들지 않으므로 지운 번호를 다시 쓰지 않는다**(POST-01d) |
+| deleted_at | DATETIME null | 블로그 삭제·탈퇴(P3) |
+| active_owner_id | BIGINT 생성 열 UK null | `IF(deleted_at IS NULL, owner_id, NULL)` STORED. **살아 있는 블로그는 회원당 하나**(BLOG-01). 삭제한 뒤에는 다른 주소로 다시 개설할 수 있다(BLOG-07) |
+
+- MySQL에는 조건부 유일 인덱스가 없어서 생성 열에 유일 키를 건다. MySQL 유일 키는 NULL을 여러 개 허용하므로 삭제된 블로그끼리는 부딪치지 않는다. Django에서는 `GeneratedField`로 선언한다.
+- **예약어**는 코드 상수(`apps/blogs/reserved.py`)다. 목록은 [contracts/pages.md](./contracts/pages.md) 끝에 있다. URL 설정과 함께 바뀌어야 하므로 테이블로 두지 않는다.
+- 블로그 화면에 들어올 때 `deleted_at IS NOT NULL`이거나 주인이 이용 제한 중이면 404다(ADMIN-02).
+
+### guestbook_entries (P2)
+
+| 필드 | 타입 | 규칙 |
+| --- | --- | --- |
+| id | BIGINT PK | |
+| blog_id | FK → blogs (CASCADE) | |
+| author_id | FK → users (PROTECT) | 탈퇴 회원이면 '탈퇴한 회원'으로 표시(AUTH-06) |
+| content | TEXT | 1~1,000자, 순수 텍스트(CMT-04는 댓글과 규칙이 같다) |
+| edited_at | DATETIME null | 수정하면 기록, '수정됨' 표시 |
+| hidden_at, hidden_reason, hidden_by_id | DATETIME null, VARCHAR(200) null, FK → users null | 관리자 숨김(ADMIN-03) |
+| client_token | CHAR(36) null | `(author_id, client_token)` 유일. 중복 등록 방지(COM-P06) |
+
+- 정렬: `created_at DESC, id DESC`(최신순 페이지, review E-01).
+
+---
+
+## 4. 글·분류 (`posts` 앱)
+
+### topics (P2)
+
+| 필드 | 타입 | 규칙 |
+| --- | --- | --- |
+| id | BIGINT PK | |
+| name | VARCHAR(20) UK | 10개([research.md](./research.md) 15절) |
+| slug | VARCHAR(30) UK | `/topic/{slug}` |
+| sort_order | SMALLINT | |
+
+데이터 마이그레이션으로 넣는다. 화면에서 고치지 않는다. 테이블은 P2지만 `posts.topic_id`가 가리키므로 기반 단계에서 함께 만든다.
+
+### categories
+
+| 필드 | 타입 | 규칙 |
+| --- | --- | --- |
+| id | BIGINT PK | **카테고리 주소 번호**(`/{blog}/category/{id}`). 이름을 바꿔도 그대로(CAT-02) |
+| blog_id | FK → blogs (CASCADE) | |
+| parent_id | FK → categories null (RESTRICT) | 한 단계까지(CAT-03, P2). 하위가 있는 상위는 지울 수 없다 |
+| name | VARCHAR(20) | 앞뒤 공백 뺀 1~20자(CAT-01) |
+| sort_order | INT | 사이드바 순서(CAT-04, P2) |
+| parent_key | BIGINT 생성 열 | `IFNULL(parent_id, 0)` STORED. `(blog_id, parent_key, name)` 유일 = "같은 단계 안에서 이름이 겹칠 수 없다" |
+
+- **'전체 글'과 '미분류'는 행으로 두지 않는다.** 미분류 = `posts.category_id IS NULL`이므로 이름을 바꾸거나 지울 방법이 처음부터 없다. 미분류 글이 하나도 없으면 사이드바에서 숨긴다.
+- **카테고리 삭제**: 소속 글을 `category_id = NULL`(미분류)로 옮기고 카테고리를 지운다. 한 트랜잭션(원칙 IV).
+- 하위의 하위는 만들 수 없고, 하위가 있는 카테고리를 다른 카테고리 아래로 옮길 수 없다(모델 검증).
+- 블로그당 100개 상한([research.md](./research.md) 14절).
+
+### tags, post_tags
+
+| tags 필드 | 타입 | 규칙 |
+| --- | --- | --- |
+| id | BIGINT PK | |
+| blog_id | FK → blogs (CASCADE) | 태그는 블로그 단위(TAG-01) |
+| name | VARCHAR(20) | 앞뒤 공백과 맨 앞 `#`을 뺀 1~20자. `(blog_id, name)` 유일. 정렬 규칙 때문에 `Travel`과 `travel`은 같은 태그다 |
+
+- `post_tags`: `(post_id, tag_id)` 복합 PK라 같은 태그를 한 글에 두 번 달 수 없다. 글당 10개는 폼 검증(TAG-01).
+- 태그 주소는 `/{blog}/tag/{name}`. 이름을 URL 인코딩한다.
+- 어떤 볼 수 있는 글에도 연결되지 않은 태그는 태그 목록(TAG-03)에서 숨긴다(review D-03).
+
+### posts
+
+| 필드 | 타입 | 규칙 |
+| --- | --- | --- |
+| id | BIGINT PK | 내부 ID. 주소에는 쓰지 않는다 |
+| blog_id | FK → blogs (CASCADE) | |
+| post_no | INT UNSIGNED null | **글 주소 번호**(`/{blog}/{post_no}`). 처음 발행할 때 `blogs.last_post_no + 1`. `(blog_id, post_no)` 유일. 임시저장 글은 null(번호를 쓰지 않음) |
+| category_id | FK → categories null (SET_NULL) | null이면 미분류 |
+| topic_id | FK → topics null (SET_NULL) | null이면 주제 없음(POST-11) |
+| title | VARCHAR(100) | 발행 시 앞뒤 공백 뺀 1~100자(POST-01a). 임시저장은 빈 값 허용 |
+| content | LONGTEXT | nh3로 정제한 HTML(POST-01b, 원칙 III). 1MB 상한 |
+| content_text | LONGTEXT | 서식을 뺀 순수 텍스트. 검색 대상(SRCH-01) |
+| excerpt | VARCHAR(150) | `content_text` 앞 150자(COM-P01). 목록에서 본문을 읽지 않으려고 따로 둔다 |
+| cover_image_id | FK → images null (SET_NULL) | 고른 대표 이미지(POST-07, P2) |
+| first_image_id | FK → images null (SET_NULL) | 본문 첫 이미지. 저장할 때 정제 단계에서 채운다. 목록 대표 이미지 = `cover_image` ?? `first_image` ?? 없음 |
+| status | VARCHAR(10) | `DRAFT` \| `PUBLISHED`. P3에서 `SCHEDULED` 추가 |
+| visibility | VARCHAR(10) | `PUBLIC` \| `PRIVATE`. 기본 `PUBLIC`(POST-06) |
+| published_at | DATETIME null | **발행일.** 목록 정렬 기준. 아래 '발행일 규칙' |
+| ever_public | BOOL | 한 번이라도 공개 상태로 발행됐는지. 발행일을 고정할지 판단한다 |
+| view_count | INT UNSIGNED | 중복 뺀 조회수(POST-09, P2). 기본 0 |
+| hidden_at, hidden_reason, hidden_by_id | DATETIME null, VARCHAR(200) null, FK → users null | 관리자 숨김(ADMIN-03, P2) |
+| client_token | CHAR(36) null | `(blog_id, client_token)` 유일. 발행 연타 방지(COM-P06) |
+
+**발행일 규칙 (COM-P02)**
+
+| 일 | `published_at` | `ever_public` |
+| --- | --- | --- |
+| 공개로 발행 | 지금 | true |
+| 비공개로 발행 | 지금(임시 발행일) | false |
+| 비공개 → 처음 공개로 바꿈 | **지금으로 다시 정함** | true |
+| 한 번 공개된 뒤 공개 범위를 바꿈 | 그대로 | true |
+| 수정 | 그대로 | 그대로 |
+| (P3) 예약 시각 도래 | 실제 공개된 시각 | true |
+
+**글 번호 주기 (POST-01d)**: 발행 트랜잭션 안에서 `SELECT ... FROM blogs WHERE id = ? FOR UPDATE`로 블로그 행을 잠그고 `last_post_no`를 1 올린 값을 쓴다. 동시에 두 글을 발행해도 번호가 겹치지 않고, `(blog_id, post_no)` 유일 키가 최종 방어선이다. 글을 지워도 `last_post_no`는 그대로라 번호를 다시 쓰지 않는다.
+
+**인덱스**
+
+| 인덱스 | 쓰는 곳 |
+| --- | --- |
+| UK `(blog_id, post_no)` | 글 상세 주소 |
+| UK `(blog_id, client_token)` | 발행 중복 방지 |
+| `(blog_id, status, published_at, id)` | 블로그 글 목록, 이전·다음 글 |
+| `(status, visibility, published_at, id)` | 홈 최신 글 |
+| `(topic_id, published_at, id)` | 주제별 글 |
+| `(category_id, published_at, id)` | 카테고리 글 목록 |
+
+검색은 부분 일치 `LIKE`라 인덱스를 쓰지 않는다([research.md](./research.md) 11절).
+
+**상태 변화**
+
+```mermaid
+stateDiagram-v2
+    [*] --> DRAFT: 임시저장(P2)
+    [*] --> PUBLISHED: 발행 (post_no 부여, published_at = 지금)
+    DRAFT --> PUBLISHED: 발행 (같은 행이 글이 됨 = 임시저장이 사라짐)
+    PUBLISHED --> PUBLISHED: 수정 (post_no, published_at 그대로)
+    PUBLISHED --> [*]: 삭제 (댓글·공감·태그 연결·조회 기록 함께 삭제)
+    DRAFT --> [*]: 임시저장 삭제
+```
+
+- 공개 범위(`visibility`)와 관리자 숨김(`hidden_at`)은 상태와 따로 움직인다.
+- 발행된 글은 임시저장으로 되돌리지 않는다. 숨기려면 비공개로 바꾼다.
+- P3 예약 발행은 `DRAFT → SCHEDULED → PUBLISHED`를 더한다. 예약 시각이 되면 그때 `post_no`를 준다.
+
+**볼 수 있는 글 (POST-04a, POST-06a, 원칙 II)**
+
+블로그 주인이 아닌 사람에게 보이는 글은 아래를 **모두** 만족하는 글이다. `apps/posts/visibility.py`의 `visible_posts(viewer)` 한 곳에서만 쿼리로 만든다.
+
+1. 블로그가 살아 있다: `blogs.deleted_at IS NULL`
+2. 블로그 주인이 탈퇴하지 않았고 이용 제한 중이 아니다(ADMIN-02). (P3) 블로그 이용 제한도 없다(ADMIN-05)
+3. 관리자가 숨기지 않았다: `posts.hidden_at IS NULL`
+4. `status = 'PUBLISHED' AND visibility = 'PUBLIC'`
+5. (P3) 카테고리가 비공개가 아니다(CAT-05)
+
+블로그 주인은 1·2를 만족하는 자기 블로그의 모든 글(임시저장·비공개·숨김 포함)을 본다. 숨긴 글은 숨김 사실과 사유가 함께 보인다(ADMIN-03). 2가 깨지면 주인 말고는 블로그 전체가 404다.
+
+### images
+
+| 필드 | 타입 | 규칙 |
+| --- | --- | --- |
+| id | BIGINT PK | |
+| uploader_id | FK → users null (SET_NULL) | |
+| file | VARCHAR(255) | 저장 경로. 이름은 UUID |
+| thumb_file | VARCHAR(255) | 목록용 가로 480px(COM-P03) |
+| content_type | VARCHAR(20) | Pillow가 판단한 `image/jpeg` \| `image/png` \| `image/gif` \| `image/webp` |
+| width, height | INT | 비율 유지 표시용 |
+| size_bytes | INT | 10MB 이하 |
+
+- `images`는 글 본문 이미지만 담는다. 프로필 이미지는 회원·블로그 행의 파일 경로 열이다.
+- **글과의 연결은 `post_images`(`post_id`, `image_id` 복합 PK, 양쪽 CASCADE)** 가 맡는다. 글을 저장할 때 본문에 남은 이미지로 다시 만든다. 남의 이미지는 연결하지 않는다(`uploader_id` 검사).
+- 24시간이 지나도 `post_images`에 연결이 없고 어느 글의 `cover_image_id`·`first_image_id`도 아닌 이미지는 `cleanup` 명령이 파일과 행을 지운다(review C-07).
+- **FK 순환 참조를 두지 않는다.** 처음에는 `users`·`blogs`·`posts` → `images`와 `images` → `users`·`posts`가 서로 가리켰다. 프로필을 경로 열로, 글 연결을 `post_images`로 바꿔 FK가 한 방향으로만 흐른다(`posts` → `images` → `users`). 자기 참조인 `categories.parent_id`만 남는다.
+
+### post_views (P2)
+
+| 필드 | 타입 | 규칙 |
+| --- | --- | --- |
+| id | BIGINT PK | |
+| post_id | FK → posts (CASCADE) | |
+| viewer_key | CHAR(64) | 방문자 키의 SHA-256([research.md](./research.md) 8절) |
+| viewed_at | DATETIME | |
+
+- 인덱스 `(post_id, viewer_key, viewed_at)`: 30분 중복 판단. 인덱스 `(viewed_at, post_id)`: 정각 집계.
+- 24시간 대체 순위 때문에 최소 25시간은 남긴다. `cleanup`이 7일 지난 기록을 지운다.
+
+---
+
+## 5. 소통·탐색
+
+### comments (`comments` 앱)
+
+| 필드 | 타입 | 규칙 |
+| --- | --- | --- |
+| id | BIGINT PK | |
+| post_id | FK → posts (CASCADE) | 글이 지워지면 함께 지워진다(POST-03) |
+| author_id | FK → users (PROTECT) | 탈퇴 회원이면 '탈퇴한 회원'(AUTH-06) |
+| content | TEXT | 앞뒤 공백 뺀 1~1,000자(CMT-01). 순수 텍스트로 저장하고 화면에서 이스케이프(원칙 III) |
+| edited_at | DATETIME null | 자기 댓글 수정(CMT-03, P2). '수정됨' 표시 |
+| hidden_at, hidden_reason, hidden_by_id | | 관리자 숨김(ADMIN-03, P2). 다른 사람에게는 '관리자가 숨긴 댓글' |
+| client_token | CHAR(36) null | `(author_id, client_token)` 유일(COM-P06) |
+
+- 정렬: `created_at, id` 오름차순(작성순, CMT-01). 글 상세에서 처음 50개를 보여 주고 '더보기'로 이어 본다(review E-01).
+- **댓글 삭제**(CMT-02): P1·P2에서는 행을 지운다. P3 답글(CMT-05)이 생기면, 답글이 있는 댓글은 `deleted_at`만 기록해 '삭제된 댓글'로 남긴다.
+- **댓글 수** = 그 글에서 숨기지 않고 지우지 않은 댓글 수. 매번 센다(9절).
+- 블로그 주인은 자기 블로그 글의 댓글을 지울 수 있지만, 누구도 남의 댓글 `content`를 고칠 수 없다(CMT-02, ADMIN-01a). 수정 API는 작성자만 허용한다.
+
+### post_likes (`social` 앱)
+
+| 필드 | 타입 | 규칙 |
+| --- | --- | --- |
+| id | BIGINT PK | |
+| user_id | FK → users (CASCADE) | |
+| post_id | FK → posts (CASCADE) | `(user_id, post_id)` 유일. 연타해도 하나(SOC-01, COM-P06) |
+
+- 자기 글에는 만들 수 없다(SOC-01). 서비스 계층에서 검사하고 `403 own_post`로 답한다.
+- 공감 수 = 행 수. 탈퇴하면 행이 지워져 수치에서 빠진다(AUTH-06).
+
+### subscriptions (`social` 앱, P2)
+
+| 필드 | 타입 | 규칙 |
+| --- | --- | --- |
+| id | BIGINT PK | |
+| subscriber_id | FK → users (CASCADE) | |
+| blog_id | FK → blogs (CASCADE) | `(subscriber_id, blog_id)` 유일. 자기 블로그는 불가(SUB-01) |
+
+- 구독자 수 = 행 수(SUB-03). 피드 = 구독한 블로그의 `visible_posts(viewer)`를 커서 방식으로(SUB-02). 구독 이전 글도 나온다(review F-06).
+
+### ranking_snapshots, ranking_entries (`discovery` 앱, P2)
+
+| snapshots 필드 | 타입 | 규칙 |
+| --- | --- | --- |
+| id | BIGINT PK | |
+| kind | VARCHAR(10) | `POST` \| `BLOGGER`(P3) |
+| window_end | DATETIME | 기준 정각. `(kind, window_end)` 유일 → 같은 정각에 두 번 돌아도 하나(원칙 IV) |
+| basis | VARCHAR(5) | `1H` \| `24H` \| `EMPTY`(HOME-02 대체 기준) |
+
+| entries 필드 | 타입 | 규칙 |
+| --- | --- | --- |
+| id | BIGINT PK | |
+| snapshot_id | FK (CASCADE) | |
+| position | SMALLINT | 순위, 1부터. `(snapshot_id, position)` 유일. `rank`는 MySQL 예약어라 쓰지 않는다 |
+| post_id | FK → posts null (CASCADE) | kind = POST |
+| blog_id | FK → blogs null (CASCADE) | kind = BLOGGER(P3) |
+| score | INT | 구간 조회수(인기 블로거는 그 블로그 볼 수 있는 글 조회수 합, HOME-04) |
+
+- 매 정각 `compute_rankings`가 구간([research.md](./research.md) 7절)의 `post_views`를 센다. 대상은 집계 시점에 비회원 기준 `visible_posts`인 글뿐이다.
+- **보여 줄 때 다시 거른다**: 화면은 가장 최근 스냅숏을 읽되 한 번 더 `visible_posts`로 거른다. 정각 사이에 비공개·삭제·숨김이 된 글은 바로 빠진다(SC-003, review F-01). 빠진 자리는 아래 순위가 한 칸씩 올라와 보인다.
+- 상위 100위까지만 저장한다.
+
+---
+
+## 6. 서비스 관리 (`moderation` 앱)
+
+### user_sanctions (P2)
+
+| 필드 | 타입 | 규칙 |
+| --- | --- | --- |
+| id | BIGINT PK | |
+| user_id | FK → users (PROTECT) | `role = ADMIN`은 대상이 될 수 없다(ADMIN-01a) |
+| admin_id | FK → users (PROTECT) | 처리한 관리자 |
+| reason | VARCHAR(500) | 필수. 대상자가 볼 수 있다 |
+| starts_at | DATETIME | |
+| ends_at | DATETIME null | null이면 영구(ADMIN-02) |
+| released_at, released_by_id | DATETIME null, FK null | 기한 전 해제 |
+
+- **제한 중** = `starts_at <= 지금 AND (ends_at IS NULL OR ends_at > 지금) AND released_at IS NULL`인 행이 있다. 기한이 지나면 작업 없이 저절로 풀린다.
+- 로그인한 채 제한되면 다음 요청부터 막는다. 미들웨어가 요청마다 확인하고, 제한 중이면 로그아웃시키고 사유·기한을 안내한다.
+- 제한 중에는 그 회원의 블로그와 모든 글이 다른 사람에게 404다(ADMIN-02, 4절 '볼 수 있는 글' 2). 남의 글에 단 댓글은 그대로 둔다(review E-03).
+
+### admin_logs (P2부터 기록, 화면은 P3)
+
+| 필드 | 타입 | 규칙 |
+| --- | --- | --- |
+| id | BIGINT PK | |
+| admin_id | FK → users (PROTECT) | |
+| action | VARCHAR(30) | `HIDE_POST` `UNHIDE_POST` `HIDE_COMMENT` `UNHIDE_COMMENT` `HIDE_GUESTBOOK` `UNHIDE_GUESTBOOK` `SANCTION_USER` `RELEASE_USER` (P3에서 더함) |
+| target_type, target_id | VARCHAR(20), BIGINT | |
+| reason | VARCHAR(500) | |
+
+- **추가만 된다**(ADMIN-06). 모델의 수정·삭제를 막고, 운영 DB의 앱 계정에서 이 테이블의 `UPDATE`·`DELETE` 권한을 뺀다.
+- 숨김·제한 기능(P2)과 같은 트랜잭션에서 기록한다. 이력 화면이 P3여도 기록은 처음부터 남는다(review H-03).
+
+---
+
+## 7. 수치를 세는 법 (원칙 IV, SC-005)
+
+| 수치 | 세는 법 | 저장 |
+| --- | --- | --- |
+| 공감 수 | `post_likes` 행 수 | 저장 안 함 |
+| 댓글 수 | 숨기지 않고 지우지 않은 `comments` 행 수 | 저장 안 함 |
+| 구독자 수 | `subscriptions` 행 수 | 저장 안 함 |
+| 카테고리별 글 수 | `visible_posts(viewer)` 중 그 카테고리(상위는 하위 포함) | 저장 안 함 |
+| 조회수 | 중복 뺀 조회 | `posts.view_count`. 조회 기록과 같은 트랜잭션에서 1 올림 |
+
+목록 화면은 `annotate(Count(...))`와 `select_related`로 한 번에 세어, 글 개수만큼 쿼리가 늘지 않게 한다(기술 제약 N+1 금지). 쿼리 수 테스트(`django_assert_max_num_queries`)를 목록 화면마다 둔다.
+
+---
+
+## 8. 삭제·탈퇴 때 함께 처리되는 것 (원칙 IV)
+
+모두 **한 트랜잭션** 안에서 처리한다. 하나라도 실패하면 아무것도 바뀌지 않는다.
+
+| 작업 | 함께 삭제 | 남김 |
+| --- | --- | --- |
+| 글 삭제 (POST-03) | 댓글, 공감, 태그 연결, 이미지 연결(`post_images`), 조회 기록, 순위 항목, (P3) 저장·알림 | 블로그의 `last_post_no`(번호 재사용 방지). 이미지 파일은 `cleanup`이 나중에 |
+| 카테고리 삭제 (CAT-01) | 없음 | 글은 미분류로 이동 |
+| 태그 삭제 (TAG-04, P3) | 태그 연결 | 글 |
+| 블로그 삭제 (BLOG-07, P3) | 글(위 규칙대로), 카테고리, 태그, 방명록, 구독 | 블로그 행(`deleted_at` 기록, 주소 영구 예약) |
+| 회원 탈퇴 (AUTH-06, P3) | 블로그(위 규칙대로), 공감, 구독, (P3) 저장·알림, allauth 행, 세션 | 회원 행(익명화), 남의 글에 단 댓글·방명록('탈퇴한 회원'), 제재·관리 기록 |
+
+---
+
+## 9. DB가 지키는 규칙 모음
+
+화면이나 서비스 코드가 실수해도 DB가 막는 것들이다(원칙 IV "DB 제약으로 막고, 화면의 버튼 막기는 보조").
+
+| 규칙 | 제약 | 요구사항 |
+| --- | --- | --- |
+| 이메일 하나에 회원 하나 | `users.email` UK, `account_emailaddress.email` UK | AUTH-01a, AUTH-01d |
+| 닉네임 겹침 불가(대소문자 무시) | `users.nickname` UK + `as_ci` | AUTH-01f |
+| 소셜 계정 하나에 회원 하나 | `(provider, uid)` UK | AUTH-01 |
+| 살아 있는 블로그 회원당 하나 | `blogs.active_owner_id` UK (생성 열) | BLOG-01 |
+| 블로그 주소 영구 예약 | `blogs.address` UK + 행을 지우지 않음 | BLOG-01b |
+| 글 번호 겹침 불가 | `(blog_id, post_no)` UK | POST-01d |
+| 발행 연타 한 번만 | `(blog_id, client_token)` UK | COM-P06 |
+| 같은 단계 카테고리 이름 겹침 불가 | `(blog_id, parent_key, name)` UK | CAT-01, CAT-03 |
+| 하위 있는 상위 삭제 불가 | `categories.parent_id` RESTRICT | CAT-03 |
+| 태그 이름 겹침 불가(대소문자 무시) | `(blog_id, name)` UK + `as_ci` | TAG-01 |
+| 한 글에 같은 태그 한 번 | `post_tags` 복합 PK | TAG-01 |
+| 공감 한 번 | `(user_id, post_id)` UK | SOC-01 |
+| 구독 한 번 | `(subscriber_id, blog_id)` UK | SUB-01 |
+| 댓글·방명록 연타 한 번만 | `(author_id, client_token)` UK | COM-P06 |
+| 정각 순위 한 번만 | `(kind, window_end)` UK | HOME-02 |
+| 발행된 글은 번호·발행일이 있음 | `ck_posts_published_fields`: `status = 'DRAFT' OR (post_no IS NOT NULL AND published_at IS NOT NULL)` | POST-01d, COM-P02 |
+| 숨기면 사유가 있음 | `posts`·`comments`·`guestbook_entries`의 `ck_*_hidden_reason`: `hidden_at IS NULL OR hidden_reason IS NOT NULL` | ADMIN-01a |
+| 순위 종류·기준 값 | `ck_ranking_snapshots_kind`, `ck_ranking_snapshots_basis` | HOME-02 |
+| 이용 제한 기간이 거꾸로 되지 않음 | `ck_user_sanctions_period`: `ends_at IS NULL OR ends_at > starts_at` | ADMIN-02 |
+| 관리 기록 수정·삭제 불가 | DB 계정 권한 | ADMIN-06 |
+
+**DB가 아니라 앱이 지키는 것**(이유와 함께)
+
+- **숨긴 관리자(`hidden_by_id`)가 있음**: 관리자가 지워지면 `SET NULL`로 비워지는 열이다. MySQL은 `ON DELETE` 동작이 걸린 외래 키 열을 CHECK에 쓰지 못하게 하므로, 숨김 서비스 함수가 넣고 `admin_logs`에도 남긴다.
+- **순위 항목은 글과 블로그 중 정확히 하나**: `ranking_entries.post_id`·`blog_id`도 `CASCADE` 외래 키라 같은 이유로 CHECK를 두지 못한다. `compute_rankings`가 만들고 테스트가 지킨다.
+- **글의 카테고리·태그는 같은 블로그 것**: `posts.category_id`, `post_tags.tag_id`는 id만 가리킨다. 복합 외래 키는 Django에서 직접 SQL 마이그레이션이 필요해 원칙 VI(단순하게)에 어긋나므로, 글 저장 서비스가 `category.blog_id == post.blog_id`, `tag.blog_id == post.blog_id`를 검사하고 권한 테스트로 지킨다. 화면도 자기 블로그 것만 고르게 한다.
+
+---
+
+## 10. 팀 ERD와 다른 점
+
+| 팀 ERD | 한채 | 이유 |
+| --- | --- | --- |
+| `USER.primary_blog_id`, `BLOG.moved_to_blog_id`, `POST_MOVE` | 없음 | 회원당 블로그 1개라 대표 블로그·이사 없음(선택 7.2) |
+| `BLOG.topic_id` | 없음, `posts.topic_id` | 주제는 글마다(선택 7.7) |
+| `POST.slug`, `protected_password_hash`, `content_format` | 없음 | 번호 주소(7.5), 확장 공개 범위 없음(7.8), WYSIWYG HTML 하나(7.4) |
+| `posts.id`가 글 주소 | `posts.post_no`(블로그마다 1부터) + `blogs.last_post_no` | POST-01d |
+| `posts.visibility`에 `SUBSCRIBERS` | `PUBLIC`·`PRIVATE`만 | 선택 7.8 |
+| `posts.published_at` = 처음 발행 시각 | 처음 공개된 시각 + `ever_public` | COM-P02 |
+| `posts.thumbnail_url` | `cover_image_id`, `first_image_id` (이미지 FK) | 쓰지 않는 이미지 정리, 목록용 작은 이미지 |
+| `RESERVED_WORD` 테이블 | 코드 상수 | URL 설정과 함께 바뀌어야 함 |
+| `USER.email`·`password_hash`·`social_provider`·`social_id` | `users` + allauth 테이블 | 메일 인증·소셜 연결을 allauth가 관리 |
+| `USER.profile_image_url` | `users.profile_image` (파일 경로) | 이름만 맞춤. FK 순환을 피하려고 `images` 대신 경로 열로 둔다(4절 images) |
+| 없음 | `users.terms_agreed_at`, `privacy_agreed_at` | AUTH-01e |
+| `TAG.name VARCHAR(30)` | `VARCHAR(20)` | TAG-01 |
+| 없음 | `posts.content_text`, `excerpt`, `first_image_id` | 검색, 목록 요약, 대표 이미지를 목록에서 빠르게 |
+| 없음 | `ranking_snapshots`, `ranking_entries` | 정각 순위를 다음 정각까지 고정(HOME-02) |
+| 없음 | `client_token` 열 | 연타 방지(COM-P06) |
+| 없음 | `blogs.active_owner_id`, `categories.parent_key` 생성 열 | MySQL에서 조건부 유일 제약 대신 |
+| 없음 | `comments.edited_at` | '수정됨' 표시(review E-02) |
