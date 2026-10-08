@@ -13,6 +13,14 @@ blog-docs/
 ├── specs/
 │   └── 001-blog/
 │       ├── spec.md                  # Spec Kit 기능 명세 (무엇을, 왜)
+│       ├── review.md                # 통합본 대조 검토
+│       ├── plan.md                  # 구현 계획 (기술 스택, 구조, Constitution Check)
+│       ├── research.md              # 기술 결정과 이유, 확정한 설정값
+│       ├── data-model.md            # ERD와 테이블 설계
+│       ├── quickstart.md            # 로컬 실행과 P1 확인 순서
+│       ├── contracts/
+│       │   ├── pages.md             # 화면 주소와 권한
+│       │   └── api.md               # 화면 JS가 부르는 JSON API
 │       └── checklists/
 │           └── requirements.md      # 명세 품질 체크리스트
 └── docs/                            # 원본 문서 (수정하지 않고 참고용으로 보관)
@@ -23,5 +31,5 @@ blog-docs/
 
 1. `/speckit.constitution`: 프로젝트 원칙 v1.0.0 작성 (2026-10-08)
 2. `/speckit.clarify`: 미결정 사항 모두 정리 완료 (2026-10-07)
-3. `/speckit.plan`: 기술 스택, 화면, 데이터 모델 (다음 단계)
-4. `/speckit.tasks` → `/speckit.implement`
+3. `/speckit.plan`: 기술 스택(Django 5.2 + MySQL 8.4), 화면 주소, ERD (2026-10-08)
+4. `/speckit.tasks`: 작업 목록 (다음 단계) → `/speckit.implement`
