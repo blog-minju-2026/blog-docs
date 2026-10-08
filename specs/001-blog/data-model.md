@@ -16,6 +16,8 @@ spec의 Key Entities를 Django 모델과 MySQL 8.4 테이블로 옮긴 것이다
 
 ## 1. ERD
 
+Crowfoot에도 같은 P1·P2 ERD가 있다: [한채 블로그 플랫폼](https://crowfoot.java21.net/workspaces/59/models/670) (테이블 19개, 도메인 6개, 요구사항 12개 연결). 이 문서와 Crowfoot이 다르면 이 문서를 기준으로 Crowfoot을 고친다.
+
 ### 1.1 P1·P2 전체 (처음 만드는 테이블)
 
 ```mermaid
