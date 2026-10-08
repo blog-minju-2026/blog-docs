@@ -62,6 +62,8 @@ erDiagram
         datetime terms_agreed_at "이용약관 동의(AUTH-01e)"
         datetime privacy_agreed_at "개인정보 수집·이용 동의"
         boolean is_active "탈퇴하면 false"
+        boolean is_staff "Django 운영자(/django-admin/)"
+        boolean is_superuser "Django 모든 권한"
         datetime withdrawn_at "null. P3"
         datetime last_login "null"
         datetime created_at
@@ -359,9 +361,12 @@ Django `AbstractBaseUser` + `PermissionsMixin` 바탕의 사용자 정의 모델
 | terms_agreed_at | DATETIME | 이용약관 동의 시각(AUTH-01e) |
 | privacy_agreed_at | DATETIME | 개인정보 수집·이용 동의 시각 |
 | is_active | BOOL | 탈퇴하면 false |
+| is_staff | BOOL | 기본 false. `/django-admin/`에 들어갈 수 있는 운영자. 서비스 관리자(`role = ADMIN`)와 다른 개념이다. `createsuperuser`로만 켠다 |
+| is_superuser | BOOL | 기본 false. Django의 모든 권한. 운영자 1~2명만 |
 | withdrawn_at | DATETIME null | P3(AUTH-06) |
 | last_login | DATETIME null | |
 
+- `PermissionsMixin`이 만드는 연결 테이블 `users_groups`, `users_user_permissions`와 Django 기본 테이블(`django_session`, `auth_permission` 등)은 프레임워크가 만들므로 ERD에 넣지 않는다.
 - **만 14세 이상 확인**(AUTH-01e)은 가입 폼의 필수 체크 칸이다. 체크하지 않으면 가입되지 않으므로, 가입된 회원은 모두 확인을 거쳤다. 따로 열로 두지 않는다.
 - **로그인 방식**은 allauth 테이블로 안다. `account_emailaddress`(이메일 가입, `verified`가 인증 여부)와 `socialaccount_socialaccount`(`provider` = `kakao` \| `google` \| `naver`, `(provider, uid)` 유일). 한 회원은 둘 중 한 가지 방식만 가진다(AUTH-01d, 계정 연결 없음).
 - allauth 테이블 두 개는 allauth 마이그레이션이 만든다. Crowfoot에서 DDL을 내보내 DB를 만들지 않는다. `account_emailaddress.primary`는 MySQL 예약어라 백틱 없이 내보낸 DDL은 실패한다.
@@ -699,7 +704,17 @@ stateDiagram-v2
 | 구독 한 번 | `(subscriber_id, blog_id)` UK | SUB-01 |
 | 댓글·방명록 연타 한 번만 | `(author_id, client_token)` UK | COM-P06 |
 | 정각 순위 한 번만 | `(kind, window_end)` UK | HOME-02 |
+| 발행된 글은 번호·발행일이 있음 | `ck_posts_published_fields`: `status = 'DRAFT' OR (post_no IS NOT NULL AND published_at IS NOT NULL)` | POST-01d, COM-P02 |
+| 숨기면 사유가 있음 | `posts`·`comments`·`guestbook_entries`의 `ck_*_hidden_reason`: `hidden_at IS NULL OR hidden_reason IS NOT NULL` | ADMIN-01a |
+| 순위 종류·기준 값 | `ck_ranking_snapshots_kind`, `ck_ranking_snapshots_basis` | HOME-02 |
+| 이용 제한 기간이 거꾸로 되지 않음 | `ck_user_sanctions_period`: `ends_at IS NULL OR ends_at > starts_at` | ADMIN-02 |
 | 관리 기록 수정·삭제 불가 | DB 계정 권한 | ADMIN-06 |
+
+**DB가 아니라 앱이 지키는 것**(이유와 함께)
+
+- **숨긴 관리자(`hidden_by_id`)가 있음**: 관리자가 지워지면 `SET NULL`로 비워지는 열이다. MySQL은 `ON DELETE` 동작이 걸린 외래 키 열을 CHECK에 쓰지 못하게 하므로, 숨김 서비스 함수가 넣고 `admin_logs`에도 남긴다.
+- **순위 항목은 글과 블로그 중 정확히 하나**: `ranking_entries.post_id`·`blog_id`도 `CASCADE` 외래 키라 같은 이유로 CHECK를 두지 못한다. `compute_rankings`가 만들고 테스트가 지킨다.
+- **글의 카테고리·태그는 같은 블로그 것**: `posts.category_id`, `post_tags.tag_id`는 id만 가리킨다. 복합 외래 키는 Django에서 직접 SQL 마이그레이션이 필요해 원칙 VI(단순하게)에 어긋나므로, 글 저장 서비스가 `category.blog_id == post.blog_id`, `tag.blog_id == post.blog_id`를 검사하고 권한 테스트로 지킨다. 화면도 자기 블로그 것만 고르게 한다.
 
 ---
 
