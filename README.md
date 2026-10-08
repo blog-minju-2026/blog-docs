@@ -7,6 +7,9 @@
 
 ```
 blog-docs/
+├── .specify/
+│   └── memory/
+│       └── constitution.md      # 프로젝트 원칙 (모든 단계가 지킬 기준)
 ├── specs/
 │   └── 001-blog/
 │       ├── spec.md                  # Spec Kit 기능 명세 (무엇을, 왜)
@@ -18,6 +21,7 @@ blog-docs/
 
 ## 다음 단계
 
-1. `/speckit.clarify`: 미결정 사항 모두 정리 완료 (2026-10-07)
-2. 기능명세(spec.md) 보강 중. `/speckit.plan`은 그다음 (기술 스택, 화면, 데이터 모델)
-3. `/speckit.tasks` → `/speckit.implement`
+1. `/speckit.constitution`: 프로젝트 원칙 v1.0.0 작성 (2026-10-08)
+2. `/speckit.clarify`: 미결정 사항 모두 정리 완료 (2026-10-07)
+3. `/speckit.plan`: 기술 스택, 화면, 데이터 모델 (다음 단계)
+4. `/speckit.tasks` → `/speckit.implement`
