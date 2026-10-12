@@ -53,6 +53,9 @@ uv run python manage.py runserver
 ## 5. 자동 테스트 (원칙 V)
 
 ```bash
+make test                                   # 병합 전 확인: 아래를 모두 차례로 (원칙 V)
+
+# 일부만 돌릴 때
 uv run ruff check .
 uv run pytest                               # 단위·통합·권한표 (MySQL 테스트 DB)
 uv run pytest --req POST-04a                # 한 요구사항의 테스트만
@@ -60,7 +63,7 @@ uv run playwright install chromium webkit   # 처음 한 번
 uv run pytest tests/e2e --browser chromium --browser webkit  # P1 한 바퀴, 360px
 ```
 
-병합 전에 위 명령이 모두 통과해야 한다.
+병합 전에 `make test`가 통과해야 한다.
 
 ## 6. P1 손으로 확인하기
 
@@ -119,7 +122,7 @@ uv run pytest tests/e2e --browser chromium --browser webkit  # P1 한 바퀴, 36
 
 ### 이야기 6. 권한과 관리자 영역
 
-1. 회원 B로 `/manage/write/{A의 글 번호}` → 404(B의 블로그에 그 번호가 없음). `/admin` → 403 (US6-2).
+1. 회원 B로 `/manage/write/99`(B의 블로그에 없는 번호, A의 블로그에는 있게 글을 늘려 둔다) → 404. 관리 주소는 언제나 B 자기 블로그라 A의 글은 열 수 없다. `/admin` → 403 (US6-2).
 2. 비회원으로 `/me` → 로그인 후 `/me`로 돌아온다 (US6-1).
 3. 관리자 계정으로 로그인 → `/admin` 열림. 가입 화면에는 관리자가 되는 방법이 없다 (US6-5).
 4. 운영 설정(`DJANGO_SETTINGS_MODULE=config.settings.prod`)으로 띄우고 일부러 오류를 낸다 → "잠시 후 다시 시도" 화면, 내부 정보 없음 (US6-4).
