@@ -1,6 +1,6 @@
 # blog-docs
 
-한채 블로그 플랫폼(티스토리형 블로그)의 기획·명세 문서 저장소입니다.
+한채 블로그 플랫폼(티스토리형 블로그)의 기획·명세 문서 저장소입니다. 코드는 [blog-minju-2026/blog-code](https://github.com/blog-minju-2026/blog-code)에 있습니다.
 [GitHub Spec Kit](https://github.com/github/spec-kit)의 흐름(constitution → specify → clarify → plan → tasks → implement)을 따릅니다.
 
 ## 구조
@@ -27,8 +27,11 @@ blog-docs/
 │       │   └── api.md               # 화면 JS가 부르는 JSON API
 │       └── checklists/
 │           └── requirements.md      # 명세 품질 체크리스트
-└── docs/                            # 원본 문서 (수정하지 않고 참고용으로 보관)
-    └── 1팀_블로그_통합_기능명세서.md  # 팀 통합본 v0.2, spec.md의 기준 문서
+└── docs/
+    ├── 1팀_블로그_통합_기능명세서.md  # 팀 통합본 v0.2, spec.md의 기준 문서 (수정하지 않고 참고용으로 보관)
+    ├── 기능명세서.md                  # 한채 기능명세서 (blog-code 저장소에서 옮겨 옴)
+    ├── API명세서.md                   # 한채 API 명세서
+    └── Copy of blog.sql               # DB 스키마 원본
 ```
 
 ## 다음 단계
