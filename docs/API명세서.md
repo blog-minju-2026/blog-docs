@@ -17,6 +17,7 @@
 | --- | --- | --- | --- |
 | 0.1 | 2026-10-08 | Minju | 최초 작성. 공통 규칙, 데이터 모양, 영역별 API, 화면별 API 표 |
 | 0.2 | 2026-10-12 | Minju | AUTH · BLOG API, 이미지 올리기, 골목 목록 구현에 맞춰 보완 (7.1, 7.2, 7.3) |
+| 0.3 | 2026-11-23 | Minju | 비밀번호 바꾸기 `POST /api/me/password`(4.1), 한채 관리 › 이웃 내보내기 · 다시 받아 주기(4.7), 발행 응답 `url`을 실제 화면 주소로(4.3), 이미지 올리기 오류 보완(4.3), 링크 미리보기(7.1), 관리 기록 보기 `GET /api/admin/logs`(4.10), 한도 · 횟수 제한 · 보안 헤더(7.1) |
 
 ---
 
@@ -197,6 +198,7 @@
 | `POST /api/auth/logout` | 회원 | 로그아웃 | AUTH-02 | — |
 | `GET /api/auth/nickname-available?nickname=` | 모두 | 닉네임을 쓸 수 있는지 | AUTH-05 | users |
 | `PATCH /api/me` | 회원 | 닉네임 · 프로필 이미지 수정 | AUTH-05 | users |
+| `POST /api/me/password` | 회원 | 로그인한 채로 비밀번호 바꾸기 | AUTH-08 | users |
 
 **`GET /api/auth/me` 응답** — 헤더와 "글쓰기 · 내 한채" 버튼이 이 값으로 갈 곳을 정한다 (기능명세서 6.2).
 
@@ -232,6 +234,8 @@
 **`POST /api/auth/email/resend`** 요청 `{ "email" }` → `200` `{ "sent": true }`. 없는 주소 · 이미 인증한 주소에도 같은 답을 주고 메일만 보내지 않는다(가입 여부를 이 API 로 알아내지 못하게). 같은 주소는 1분에 한 번이고, 그 안에 또 보내면 `429 TOO_MANY_REQUESTS`(`detail.retry_after` 초). 메일 서버가 실패하면 `503 MAIL_FAILED`.
 
 **`POST /api/auth/login`** 요청 `{ "email", "password" }` → `200` `{ "user": ... }`(`/api/auth/me`와 같은 모양). 실패 `401 LOGIN_FAILED`, 메일 인증 전 `403 EMAIL_NOT_VERIFIED`, 이용 제한 `403 SUSPENDED`.
+
+**`POST /api/me/password`** 요청 `{ "current_password", "new_password" }` → `200` `{ "changed": true }`. 지금 비밀번호가 틀리면 `400 VALIDATION_ERROR`(`fields.current_password`), 새 비밀번호가 규칙(8자 이상 · 흔한 비밀번호 · 숫자만 · 이메일/닉네임과 비슷함 · 지금과 같음)에 걸리면 `fields.new_password`. 여러 번 틀리면 로그인처럼 `429`. 바꾸면 이 기기의 로그인은 그대로 두고 다른 기기의 로그인은 끊는다. 비밀번호가 없는 회원(소셜로만 가입)은 `409 NO_PASSWORD`이고, 비밀번호 재설정 메일(`POST /api/auth/password/reset`)로 처음 정한다.
 
 **`PATCH /api/me`** 요청 `{ "nickname"?, "profile_image_id"? }`. 프로필 이미지는 먼저 `POST /api/images`로 올리고 받은 `id`를 넣는다. `null`이면 이미지를 지운다.
 
@@ -344,7 +348,7 @@
 | `image_ids` | 본문에 넣은 이미지들. 글과 이미지를 잇는다 |
 | `client_token` | 2.6 참고 |
 
-응답 `201` `{ "no": 7, "url": "https://minju.한채도메인/7" }`. 화면은 이 주소로 간다.
+응답 `201` `{ "no": 7, "url": "/post?address=minju&no=7" }`. `url`은 그 기록의 화면 주소이고 호스트 없이 준다(사진 주소와 같은 이유). 한채마다 서브도메인(`{주소}.한채도메인/{no}`)을 쓰는 방식은 아직 열지 않았다.
 
 **`PATCH /api/blogs/{address}/posts/{no}`** 요청은 발행과 같은 필드에서 바꿀 것만 보낸다(`client_token` 없음). 글 번호, 처음 발행 시각, 공감 · 댓글 · 조회 수, 목록 순서는 바뀌지 않는다.
 
@@ -426,9 +430,19 @@ jpg · png · gif · webp, 10MB 이하. 서버가 목록용 작은 이미지를 
 | `DELETE /api/blogs/{address}/subscription` | 회원 | 이웃 끊기 | SUB-01 | subscriptions |
 | `GET /api/me/subscriptions` | 회원 | 내 이웃 한채 목록 | SUB-01 | subscriptions, blogs |
 | `GET /api/me/feed` | 회원 | 이웃 소식 (이웃 한채의 새 기록) | SUB-02 | posts, subscriptions |
+| `GET /api/blogs/{address}/manage/neighbors?page=` | 주인 | 내 한채의 이웃 목록 | SUB-04 | subscriptions, users |
+| `DELETE /api/blogs/{address}/manage/neighbors/{id}` | 주인 | 이웃 내보내기 (다시 맺지 못하게 막아 둔다) | SUB-04 | subscriptions, blog_blocked_neighbors |
+| `GET /api/blogs/{address}/manage/blocked-neighbors?page=` | 주인 | 내보낸 이웃 목록 | SUB-04 | blog_blocked_neighbors, users |
+| `DELETE /api/blogs/{address}/manage/blocked-neighbors/{id}` | 주인 | 다시 받아 주기 | SUB-04 | blog_blocked_neighbors |
 
-- 맺기 · 끊기 응답 `200` `{ "subscribed": true, "subscriber_count": 13 }`. 내 한채면 `422 NOT_ALLOWED`.
+- 맺기 · 끊기 응답 `200` `{ "subscribed": true, "subscriber_count": 13 }`. 내 한채면 `422 NOT_ALLOWED`. 그 한채의 주인이 내보낸 회원이 다시 맺으려 하면 `403 NEIGHBOR_BLOCKED`.
 - `GET /api/me/subscriptions` → 페이지 방식, `items`는 `BlogSummary`, 이웃 맺은 최신순.
+- 한채 관리 › 이웃 (SUB-04): '이웃 공개' 기록은 이웃과 주인만 본다. 누구나 이웃 맺기를 누를 수 있으므로 주인이 범위를 정할 수 있게 한다.
+  - `GET .../manage/neighbors` → 페이지 방식, `items`는 `{ "id", "user": UserSummary, "since" }`, 최근에 맺은 순. `id`는 내보낼 때 쓴다.
+  - `DELETE .../manage/neighbors/{id}` → `200` `{ "subscriber_count": 12 }`. 그 회원은 이웃 공개 기록을 볼 수 없게 되고, 다시 받아 주기 전까지 이웃 맺기가 `403 NEIGHBOR_BLOCKED`로 막힌다. 알림은 가지 않는다.
+  - `GET .../manage/blocked-neighbors` → 페이지 방식, `items`는 `{ "id", "user": UserSummary, "blocked_at" }`, 최근에 내보낸 순.
+  - `DELETE .../manage/blocked-neighbors/{id}` → `204`. 막는 표시만 지운다. 이웃은 그 회원이 다시 맺어야 맺어진다.
+  - 한채를 허물거나 회원이 탈퇴하면 내보낸 표시도 함께 지운다.
 - `GET /api/me/feed` → 커서 방식, `items`는 `PostSummary`, 최신순. 볼 수 없는 기록은 빠진다. 마을에서는 `limit=3`으로 부른다. 이웃이 없으면 빈 `items`.
 
 ### 4.8 SRCH 마을에서 찾기
@@ -474,7 +488,13 @@ jpg · png · gif · webp, 10MB 이하. 서버가 목록용 작은 이미지를 
 | 메서드 · 주소 | 권한 | 하는 일 | 기능 |
 | --- | --- | --- | --- |
 | `/api/admin/*` | 관리자 | 1차에는 관리 기능이 없고, 이 경로 전체를 관리자만 들어오게 막아 둔다. 화면(SCR-19)은 `GET /api/auth/me`의 `role`로 들어갈지 정한다 | ADMIN-01 |
+| `GET /api/admin/logs?q=&page=` | 관리자 | 관리 기록 보기 (새것부터). `q`는 사유 · 처리한 관리자 닉네임 | ADMIN-06 |
 | (모든 API) | — | 2.3 권한, 2.4 오류 응답을 따른다. 버튼을 숨겨도 서버가 다시 검사한다 | COM-01, COM-02 |
+
+- `GET /api/admin/logs` → 페이지 방식. `items`는 `{ "id", "created_at", "admin"(닉네임), "action", "target_type", "target_id", "target", "reason" }`.
+  - `action`: `HIDE_POST` `UNHIDE_POST` `HIDE_COMMENT` `UNHIDE_COMMENT` `HIDE_GUESTBOOK` `UNHIDE_GUESTBOOK` `SANCTION_USER` `RELEASE_USER`
+  - `target`은 대상이 아직 있을 때만 온다(지워졌으면 `null`). 회원 `{ nickname, withdrawn }`, 기록 `{ title, blog_address, no }`, 댓글 `{ content(앞 80자), blog_address, no }`, 방명록 `{ content(앞 80자), blog_address }`.
+  - 관리 기록은 보기만 한다. 고치거나 지우는 API 는 없다.
 
 ---
 
@@ -520,6 +540,7 @@ jpg · png · gif · webp, 10MB 이하. 서버가 목록용 작은 이미지를 
 | **SCR-15 기록 관리** | `GET /api/blogs/{address}/posts?page=1` (주인이라 비공개 포함) | 공개 범위 바꾸기 `PATCH .../posts/{no}` (`{ "visibility" }`) · 삭제 `DELETE .../posts/{no}` |
 | **SCR-17 방 관리** | `GET /api/blogs/{address}/categories` | `POST` · `PATCH` · `DELETE .../categories/{id}` · 순서 `PUT .../categories/order` |
 | **SCR-18 한채 관리** | `GET /api/blogs/{address}` | 사진 `POST /api/images` · 저장 `PATCH /api/blogs/{address}` |
+| **이웃 관리** (`/manage-neighbors`) | `GET .../manage/neighbors` · `GET .../manage/blocked-neighbors` | 내보내기 `DELETE .../manage/neighbors/{id}` · 다시 받아 주기 `DELETE .../manage/blocked-neighbors/{id}` |
 
 ### 기타
 
@@ -560,6 +581,13 @@ SCR-04(마을 소식판), SCR-16(댓글 · 방명록 관리)은 2차 화면이�
 | 조회 기록 | 상세 조회(`GET`)와 분리한 `POST .../views` | `GET`은 아무것도 바꾸지 않아야 하고, 미리 불러오기 · 새로고침으로 조회수가 새는 것을 막는다 |
 | 기록 관리 목록 | 따로 두지 않고 한채 기록 목록을 주인이 부르면 비공개도 포함 | API 수를 줄인다. 임시저장(2차)이 생기면 `status=DRAFT` 거르기를 더한다 |
 | 목록 나누기 | 한채 안은 페이지, 마을의 쌓이는 목록은 커서 | 통합 명세 4.4 (한채 목록 10개 페이지, 더보기 목록은 중복 · 누락 없이) |
+| 링크 미리보기 | 기록(`/post`) · 마당(`/yard`) 화면을 내보낼 때 서버가 `<title>`과 `og:` 태그(제목 · 요약 · 대표 사진 · 주소)를 채운다. 누구나 볼 수 있는 것만(공개 기록, 열려 있는 한채). 이웃 공개 · 나만 보기 · 숨긴 기록은 화면 파일 그대로 (`backend/config/frontend.py`) | 화면을 브라우저가 API 로 그려서, 주소만 읽어 가는 메신저 · SNS 에는 제목이 보이지 않기 때문이다 |
+| 이미지 형식 | jpg · png · gif · webp. 여러 장을 담은 휴대폰 JPEG(MPO)는 첫 장을 jpg 로 받고, GIF · 움직이는 WebP 는 원본 그대로 둔다. 깨진 파일 · 다른 형식은 `415 UNSUPPORTED_FILE` | 휴대폰 사진이 거절되거나 움직임이 사라지지 않게 (`backend/apps/posts/images.py`) |
+| 프로필 사진 | `PATCH /api/me`로 건 사진의 `profile_image_url`은 올린 이미지의 목록용 작은 사진(가로 480px WebP) 주소다 | 프로필 사진은 댓글 · 목록마다 작은 동그라미로 나간다. 원본(최대 10MB)을 내려 줄 까닭이 없다 |
+| 한도 | 본문 HTML 1MB, 방 100개(한채마다), 새 비밀번호 128자, 임시저장 100개. 넘으면 `400 VALIDATION_ERROR`. 요청 본문이 2.5MB 를 넘으면 `400 BAD_REQUEST` | research 14절. 쌓아 두기 · 지나치게 큰 요청을 막는다 |
+| 횟수 제한 | 2.4의 `429 TOO_MANY_REQUESTS`. 바꾸는 요청에 더해 공감(분당 60) · 이웃 맺기/끊기(분당 30)와, 읽는 요청인 마을에서 찾기(분당 120)도 센다. 회원은 회원마다, 비회원은 IP 마다 | 찾기는 DB 를 넓게 훑는다 |
+| 보안 헤더 | 모든 응답에 `Content-Security-Policy`(우리 파일의 스크립트만 실행, 글꼴은 jsdelivr · Google Fonts 만). Django 운영 화면은 뺀다 (`backend/apps/common/middleware.py`) | 본문 정제가 뚫렸을 때의 두 번째 방어선 |
+| 이용 제한된 회원 | 화면 파일은 그대로 열리고, 그 화면이 부르는 첫 API 가 `403 SUSPENDED`(사유 · 기한)로 한 번 답하며 세션을 끊는다 | 화면 파일 요청에서는 DB 를 읽지 않는다. 사유도 화면에 알릴 수 있다 |
 | API 주소 | 서비스 주소 한 곳(`한채도메인/api`) | 서브도메인마다 API를 두지 않아 CORS · 쿠키 설정이 한 번으로 끝난다 |
 | 백엔드 | Django + Django REST Framework + django-allauth (기능명세서 1.5, 0.11) | 기준 ERD가 Django 구조다 |
 | 한채 주소 예약어 | `www` `api` `admin` `django-admin` `login` `logout` `signup` `accounts` `account` `static` `media` `mail` `email` `help` `about` `search` `topic` `topics` `ranking` `me` `new` `build` `manage` `blog` `blogs` `hanchae` `root` `support` `dev` `test` `village` `notice` `terms` `privacy` `address-available` (`backend/apps/blogs/serializers.py`) | 서비스 주소 · API 경로와 겹치지 않게 |
@@ -588,7 +616,7 @@ SCR-04(마을 소식판), SCR-16(댓글 · 방명록 관리)은 2차 화면이�
 | CAT · TAG | 완료 |
 | CMT | 완료. 방명록 한 줄에는 남긴 사람의 한채 `author_blog`(`{ address, name }` 또는 `null`)가 더 온다 |
 | SOC | 완료 |
-| SUB | 완료. `GET /api/me/subscriptions` 항목은 `BlogSummary`에 `post_count`(내가 볼 수 있는 기록 수)가 더 온다 |
+| SUB | 완료. `GET /api/me/subscriptions` 항목은 `BlogSummary`에 `post_count`(내가 볼 수 있는 기록 수)가 더 온다. 주인의 이웃 내보내기 · 다시 받아 주기(SUB-04) 포함 |
 | HOME | 완료. 순위는 정각마다 도는 작업 대신 그 시간의 첫 요청이 직전 정각 기준으로 계산해 저장한다(`backend/apps/rankings/services.py`). 다음 정각까지 같은 값을 주고, 이틀 지난 스냅숏은 지운다 |
 | SRCH | 완료. 기록 정확도는 제목 3 · 태그 2 · 본문 1점을 더한 점수, 같으면 최신순. 한채는 이름에 있으면 먼저, 같으면 이웃 많은 순. `q`는 1~50자 |
 
